@@ -6,45 +6,45 @@ require "tmpdir"
 
 module Download
   class Curl < Abstract
-    FORMAT_VARIABLES = [
-      'content_type',
-      'filename_effective',
-      'ftp_entry_path',
-      'http_code',
-      'http_connect',
-      'http_version',
-      'local_ip',
-      'local_port',
-      'num_connects',
-      'num_redirects',
-      'proxy_ssl_verify_result',
-      'redirect_url',
-      'remote_ip',
-      'remote_port',
-      'scheme',
-      'size_download',
-      'size_header',
-      'size_request',
-      'size_upload',
-      'speed_download',
-      'speed_upload',
-      'ssl_verify_result',
-      'time_appconnect',
-      'time_connect',
-      'time_namelookup',
-      'time_pretransfer',
-      'time_redirect',
-      'time_starttransfer',
-      'time_total',
-      'url_effective',
-    ]
+    FORMAT_VARIABLES = %w[
+      content_type
+      filename_effective
+      ftp_entry_path
+      http_code
+      http_connect
+      http_version
+      local_ip
+      local_port
+      num_connects
+      num_redirects
+      proxy_ssl_verify_result
+      redirect_url
+      remote_ip
+      remote_port
+      scheme
+      size_download
+      size_header
+      size_request
+      size_upload
+      speed_download
+      speed_upload
+      ssl_verify_result
+      time_appconnect
+      time_connect
+      time_namelookup
+      time_pretransfer
+      time_redirect
+      time_starttransfer
+      time_total
+      url_effective
+    ].freeze
 
     FORMAT_JSON = Hash[FORMAT_VARIABLES.map { |var| [var, "%{#{var}}"] }].to_json
 
     class CurlError < Error
       attr_reader :code, :variables
 
-      def initialize(code, message, variables: variables)
+      def initialize(code, message, variables: {})
         @code = code
         @variables = variables
         super(message)
@@ -91,13 +91,12 @@ module Download
 
       @destination = destination.join(filename) if destination.directory?
 
-      return if redirect_url.empty?
+      return if ignore_insecure_redirects
 
-      unless ignore_insecure_redirects
-        if uri.to_s.start_with?("https://") && !redirect_url.start_with?("https://")
-          raise InsecureRedirectError, from: uri, to: redirect_url
-        end
-      end
+      return unless uri.to_s.start_with?("https://")
+      return if redirect_url.empty?
+      return if redirect_url.start_with?("https://")
+      raise InsecureRedirectError, from: uri, to: redirect_url
     end
 
     def thread_routine
@@ -112,7 +111,7 @@ module Download
           "--show-error",
           "--location",
           "--remote-header-name",
-          "--write-out", FORMAT_JSON,
+          "--write-out", FORMAT_JSON
         ]
 
         destination.dirname.mkpath
@@ -122,11 +121,13 @@ module Download
         end
 
         Open3.popen3(curl_executable, *args, *path_arguments, uri.to_s) do |stdin, stdout, stderr, thread|
+          stdin.close
+
           buffer = ""
 
           stderr.each_char do |char|
             buffer << char.tr(",", ".")
-            next unless char == '%'
+            next unless char == "%"
 
             begin
               self.progress = parse_percentage(buffer)

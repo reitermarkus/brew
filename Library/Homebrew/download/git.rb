@@ -35,11 +35,14 @@ module Download
 
     def git(*args)
       Open3.popen3(git_executable, *args) do |stdin, stdout, stderr, thread|
+        stdin.close
+        stdout.close
+
         buffer = ""
 
         stderr.each_char do |char|
           buffer << char.sub(",", ".")
-          next unless char == '%'
+          next unless char == "%"
 
           begin
             # 0% -- 33.3%
@@ -63,8 +66,7 @@ module Download
 
         exit_status = thread.value
 
-        return if exit_status.success?
-        raise Error.new(buffer.strip)
+        raise Error, buffer.strip unless exit_status.success?
       end
     end
   end

@@ -38,7 +38,7 @@ module Download
             thread_routine
             self.progress = 100.0
             :finished
-          rescue Exception => e
+          rescue StandardError => e
             @exception = e
             :failed
           end

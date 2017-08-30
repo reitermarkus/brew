@@ -19,7 +19,7 @@ module Download
       args = if destination.directory?
         ["up", destination.to_path]
       else
-        ["checkout", uri.to_s,  destination.to_path]
+        ["checkout", uri.to_s, destination.to_path]
       end
 
       Open3.popen3(svn_executable, *args) do |stdin, stdout, stderr, thread|
@@ -28,11 +28,8 @@ module Download
 
         exit_status = thread.value
 
-        if exit_status.success?
-          self.progress = 100.0
-          return
-        end
-        raise Error.new(stderr.read.strip)
+        raise Error, stderr.read.strip unless exit_status.success?
+        self.progress = 100.0
       end
     end
   end

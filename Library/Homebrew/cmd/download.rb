@@ -23,7 +23,7 @@ class ParallelDownloader
   end
 
   def self.update_display(message, progress)
-    progress_str = " %0.1f %%" % progress
+    progress_str = format(" %0.1f %%", progress)
 
     len = width - progress_str.to_s.length
 
@@ -46,8 +46,8 @@ class ParallelDownloader
 
         if $stdout.tty?
           print "\e[" << downloads.count.to_s << "A" << lines
-        else
-          print lines if downloads.all?(&:ended?)
+        elsif downloads.all?(&:ended?)
+          print lines
         end
       end
     end
@@ -73,14 +73,14 @@ class ParallelDownloader
         end
       end
 
-      unless downloading.empty?
-        dl = downloading.deq
+      next if downloading.empty?
 
-        if dl.ended?
-          dl.delete_observers
-        else
-          downloading.enq dl
-        end
+      dl = downloading.deq
+
+      if dl.ended?
+        dl.delete_observers
+      else
+        downloading.enq dl
       end
     end
 
