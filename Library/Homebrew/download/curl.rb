@@ -98,8 +98,6 @@ module Download
           raise InsecureRedirectError, from: uri, to: redirect_url
         end
       end
-
-      self.uri = URI(redirect_url)
     end
 
     def thread_routine
