@@ -23,14 +23,15 @@ class ParallelDownloader
   end
 
   def self.update_display(message, progress)
-    progress_str = "%0.1f %%" % progress
-    len = width - progress.to_s.length - 4
+    progress_str = " %0.1f %%" % progress
+
+    len = width - progress_str.to_s.length
 
     str = message.to_s[0, len].to_s.ljust(len)
 
     split_at = (len / 100.0 * progress).to_i
 
-    "\e[7m" << str[0, split_at].to_s << "\e[0m" << str[split_at..-1] << "  #{progress_str}\n"
+    "\e[7m" << str[0, split_at].to_s << "\e[0m" << str[split_at..-1] << progress_str << "\n"
   end
 
   def update
@@ -44,8 +45,7 @@ class ParallelDownloader
         lines = downloads.map { |dl| self.class.update_display(dl.uri, dl.progress) }.join
 
         if $stdout.tty?
-          print "\e[#{downloads.count}A"
-          print lines
+          print "\e[" << downloads.count.to_s << "A" << lines
         else
           print lines if downloads.all?(&:ended?)
         end
