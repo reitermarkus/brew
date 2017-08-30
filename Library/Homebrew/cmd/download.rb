@@ -113,8 +113,6 @@ module Homebrew
       Download::Curl.new("https://homebrew.bintray.com/bottles/gcc-7.2.0.sierra.bottle.tar.gz", to: destination_dir),
     ]
 
-
-    puts "==> Starting Downloads …"
     ParallelDownloader.new(*downloads).download
 
     downloads.each do |dl|
