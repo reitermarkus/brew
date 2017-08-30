@@ -51,7 +51,18 @@ module Download
       end
     end
 
-    class InsecureRedirectError < Error; end
+    class InsecureRedirectError < Error
+      attr_reader :from, :to
+
+      def initialize(from: nil, to: nil)
+        @from = URI(from)
+        @to = URI(to)
+      end
+
+      def message
+        "#{from} -> #{to}"
+      end
+    end
 
     def initialize(*args, curl_executable: "curl", ignore_insecure_redirects: false, **options)
       super(*args, **options)
@@ -84,7 +95,7 @@ module Download
 
       unless ignore_insecure_redirects
         if uri.to_s.start_with?("https://") && !redirect_url.start_with?("https://")
-          raise InsecureRedirectError, "#{uri} -> #{redirect_url}"
+          raise InsecureRedirectError, from: uri, to: redirect_url
         end
       end
 
