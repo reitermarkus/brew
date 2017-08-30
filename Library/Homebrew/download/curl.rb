@@ -65,27 +65,10 @@ module Download
 
     def follow_redirect
       output, status = Dir.mktmpdir do |dir|
-        r, w = IO.pipe
-
-        pid = fork do
-          r.close
-
-          # `chdir` is not thread-safe, so we need to fork.
-          Dir.chdir dir do
-            output, status = Open3.capture2(
-              curl_executable, "--silent", "--head", "--remote-header-name", "--write-out", FORMAT_JSON, "-O", uri.to_s
-            )
-
-            w.write output if status.success?
-            exit!(status.exitstatus)
-          end
-        end
-
-        w.close
-
-        Process.wait(pid)
-
-        [r.read, $CHILD_STATUS]
+        Open3.capture2(
+          curl_executable, "--silent", "--head", "--remote-header-name", "--write-out", FORMAT_JSON, "-O", uri.to_s,
+          chdir: dir
+        )
       end
 
       variables = JSON.parse(output)
