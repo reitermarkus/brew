@@ -1,6 +1,8 @@
 require "download/abstract"
 
 require "open3"
+require "json"
+require "tmpdir"
 
 module Download
   class Curl < Abstract
@@ -37,11 +39,14 @@ module Download
       'url_effective',
     ]
 
-    class CurlError < Error
-      attr_reader :code
+    FORMAT_JSON = Hash[FORMAT_VARIABLES.map { |var| [var, "%{#{var}}"] }].to_json
 
-      def initialize(code, message)
+    class CurlError < Error
+      attr_reader :code, :variables
+
+      def initialize(code, message, variables: variables)
         @code = code
+        @variables = variables
         super(message)
       end
     end
@@ -58,41 +63,73 @@ module Download
 
     attr_reader :curl_executable, :ignore_insecure_redirects
 
-    def redirect_uri
-      redirect_uri, status = Open3.capture2(
-        curl_executable, "--silent", "--head", "--write-out", "%{redirect_url}", "-o", "/dev/null", uri.to_s
-      )
+    def follow_redirect
+      output, status = Dir.mktmpdir do |dir|
+        r, w = IO.pipe
+
+        pid = fork do
+          r.close
+
+          # `chdir` is not thread-safe, so we need to fork.
+          Dir.chdir dir do
+            output, status = Open3.capture2(
+              curl_executable, "--silent", "--head", "--remote-header-name", "--write-out", FORMAT_JSON, "-O", uri.to_s
+            )
+
+            w.write output if status.success?
+            exit!(status.exitstatus)
+          end
+        end
+
+        w.close
+
+        Process.wait(pid)
+
+        [r.read, $CHILD_STATUS]
+      end
+
+      variables = JSON.parse(output)
+
+      redirect_url = variables["redirect_url"]
+      filename = variables["filename_effective"]
 
       return unless status.success?
-      return if redirect_uri.empty?
+
+      @destination = destination.join(filename) if destination.directory?
+
+      return if redirect_url.empty?
 
       unless ignore_insecure_redirects
-        if uri.to_s.start_with?("https://") && !redirect_uri.start_with?("https://")
-          raise InsecureRedirectError, "#{uri} -> #{redirect_uri}"
+        if uri.to_s.start_with?("https://") && !redirect_url.start_with?("https://")
+          raise InsecureRedirectError, "#{uri} -> #{redirect_url}"
         end
       end
 
-      self.uri = URI(redirect_uri)
+      self.uri = URI(redirect_url)
     end
 
     def thread_routine
-      redirect_uri
+      follow_redirect
 
-      path_arguments = destination.directory? ? ["-O"] : ["-o", destination.to_path]
-
-      args = [
-        "--progress-bar",
-        "--fail",
-        "--show-error",
-        "--location",
-        "--continue-at", "-"
-      ]
-
-      destination.dirname.mkpath
-      had_incomplete_download = destination.file?
+      path_arguments = ["-o", destination.to_path]
 
       begin
-        Open3.popen3(curl_executable, *args, uri.to_s, *path_arguments) do |stdin, stdout, stderr, thread|
+        args = [
+          "--progress-bar",
+          "--fail",
+          "--show-error",
+          "--location",
+          "--remote-header-name",
+          "--write-out", FORMAT_JSON,
+        ]
+
+        destination.dirname.mkpath
+
+        if had_incomplete_download ||= destination.file?
+          args << "--continue-at" << "-"
+        end
+
+        Open3.popen3(curl_executable, *args, *path_arguments, uri.to_s) do |stdin, stdout, stderr, thread|
           buffer = ""
 
           stderr.each_char do |char|
@@ -109,16 +146,22 @@ module Download
 
           exit_status = thread.value
 
-          return if exit_status.success?
-          raise CurlError.new(exit_status.exitstatus, buffer.strip)
+          variables = JSON.parse(stdout.read)
+
+          return variables if exit_status.success?
+          raise CurlError.new(exit_status.exitstatus, buffer.strip, variables: variables)
         end
       rescue CurlError => e
+        http_code = e.variables["http_code"].to_i
+
         # On a “range not supported” error, try once
         # again after removing the existing file.
-        if e.code == 33 && had_incomplete_download
-          had_incomplete_download = false
-          destination.unlink
-          retry
+        if e.code == 33 || http_code == 416
+          if had_incomplete_download
+            had_incomplete_download = false
+            destination.unlink
+            retry
+          end
         end
 
         raise
