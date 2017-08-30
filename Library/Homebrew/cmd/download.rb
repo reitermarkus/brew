@@ -4,7 +4,7 @@ class ParallelDownloader
   attr_reader :downloads, :download_queue, :size
   private :downloads, :download_queue
 
-  def initialize(*downloads, size: 4)
+  def initialize(*downloads, size: 8)
     @downloads = downloads
     @download_queue = Queue.new
     @size = size
