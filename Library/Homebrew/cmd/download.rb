@@ -23,18 +23,29 @@ class ParallelDownloader
   end
 
   def self.update_display(message, progress)
-    progress = "%0.1f %%" % progress
-    len = width - progress.to_s.length - 2
-    message.to_s[0, len].to_s.ljust(len) + "  #{progress}\n"
+    progress_str = "%0.1f %%" % progress
+    len = width - progress.to_s.length - 4
+
+    str = message.to_s[0, len].to_s.ljust(len)
+
+    split_at = (len / 100.0 * progress).to_i
+
+    "\e[7m" << str[0, split_at].to_s << "\e[0m" << str[split_at..-1] << "  #{progress_str}\n"
   end
 
   def update
     thread = Thread.new do
-      lines = downloads.map { |dl| self.class.update_display(dl.uri, dl.progress) }.join
-
       @output_mutex.synchronize do
+        until @outputters.empty?
+          t = @outputters.deq
+          t.kill unless t == Thread.current
+        end
+
+        lines = downloads.map { |dl| self.class.update_display(dl.uri, dl.progress) }.join
+
         if $stdout.tty?
-          print ("\e[A" * downloads.count) + lines
+          print "\e[#{downloads.count}A"
+          print lines
         else
           print lines if downloads.all?(&:ended?)
         end
@@ -47,7 +58,10 @@ class ParallelDownloader
   def download
     downloading = Queue.new
 
-    print "\n" * downloads.count if $stdout.tty?
+    if $stdout.tty?
+      print "\n" * downloads.count
+      print "\e[?25l" # Hide cursor to avoid “flickering”.
+    end
 
     until download_queue.empty? && downloading.empty?
       unless download_queue.empty?
@@ -73,6 +87,9 @@ class ParallelDownloader
       thread = @outputters.deq
       thread.join
     end
+  ensure
+    # Don't hide the cursor forever.
+    print "\e[?25h" if $stdout.tty?
   end
 end
 
@@ -80,13 +97,17 @@ module Homebrew
   module_function
 
   def download
-    downloads = 3.times.flat_map { |i|
-      [
-        Download::Curl.new("http://ipv4.download.thinkbroadband.com/1GB.zip?#{i}", to: "/tmp/test/curl#{i}"),
-        Download::Git.new("git://github.com/Homebrew/brew.git", to: "/tmp/test/git#{i}"),
-        Download::Svn.new("https://caml.inria.fr/svn/ocaml/trunk",  to: "/tmp/test/svn#{i}")
-      ]
-    }.shuffle
+    destination_dir = Pathname("/tmp/brew-parallel-download")
+
+    destination_dir.mkpath
+
+    downloads = [
+      Download::Git.new("git://github.com/Homebrew/brew.git", to: "#{destination_dir}/brew"),
+      Download::Svn.new("https://caml.inria.fr/svn/ocaml/trunk",  to: "#{destination_dir}/ocaml"),
+      Download::Curl.new("https://www.kernel.org/pub/software/scm/git/git-2.14.1.tar.xz", to: destination_dir),
+      Download::Curl.new("https://www.python.org/ftp/python/3.6.2/Python-3.6.2.tar.xz", to: destination_dir),
+      Download::Curl.new("https://homebrew.bintray.com/bottles/gcc-7.2.0.sierra.bottle.tar.gz", to: destination_dir),
+    ]
 
 
     puts "==> Starting Downloads …"
