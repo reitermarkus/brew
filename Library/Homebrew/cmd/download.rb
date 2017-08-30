@@ -59,8 +59,9 @@ class ParallelDownloader
     downloading = Queue.new
 
     if $stdout.tty?
+      # Hide cursor to avoid “flickering”.
+      print "\e[?25l"
       print "\n" * downloads.count
-      print "\e[?25l" # Hide cursor to avoid “flickering”.
     end
 
     until download_queue.empty? && downloading.empty?
@@ -88,8 +89,11 @@ class ParallelDownloader
       thread.join
     end
   ensure
-    # Don't hide the cursor forever.
-    print "\e[?25h" if $stdout.tty?
+    if $stdout.tty?
+      # Don't hide the cursor forever.
+      print "\e[?25h"
+      $stdout.flush
+    end
   end
 end
 
