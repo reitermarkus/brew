@@ -64,12 +64,19 @@ class ParallelDownloader
       print "\n" * downloads.count
     end
 
-    until download_queue.empty? && downloading.empty?
+    hosts = Set.new
+
+    loop do
+      break if download_queue.empty? && downloading.empty?
       unless download_queue.empty?
         if downloading.size < size
           dl = download_queue.deq
-          downloading.enq dl
-          dl.start
+          if hosts.add?(dl.uri.host)
+            downloading.enq dl
+            dl.start
+          else
+            download_queue.enq dl
+          end
         end
       end
 
@@ -79,12 +86,14 @@ class ParallelDownloader
 
       if dl.ended?
         dl.delete_observers
+        hosts.delete dl.uri.host
       else
         downloading.enq dl
       end
     end
 
-    until @outputters.empty?
+    loop do
+      break if @outputters.empty?
       thread = @outputters.deq
       thread.join
     end
@@ -110,7 +119,15 @@ module Homebrew
       Download::Svn.new("https://caml.inria.fr/svn/ocaml/trunk",  to: "#{destination_dir}/ocaml"),
       Download::Curl.new("https://www.kernel.org/pub/software/scm/git/git-2.14.1.tar.xz", to: destination_dir),
       Download::Curl.new("https://www.python.org/ftp/python/3.6.2/Python-3.6.2.tar.xz", to: destination_dir),
-      Download::Curl.new("https://homebrew.bintray.com/bottles/gcc-7.2.0.sierra.bottle.tar.gz", to: destination_dir),
+      Download::Curl.new("https://homebrew.bintray.com/bottles/gcc-7.2.0.sierra.bottle.tar.gz", to: destination_dir.join("1")),
+      Download::Curl.new("https://homebrew.bintray.com/bottles/gcc-7.2.0.sierra.bottle.tar.gz", to: destination_dir.join("2")),
+      Download::Curl.new("https://homebrew.bintray.com/bottles/gcc-7.2.0.sierra.bottle.tar.gz", to: destination_dir.join("3")),
+      Download::Curl.new("https://homebrew.bintray.com/bottles/gcc-7.2.0.sierra.bottle.tar.gz", to: destination_dir.join("4")),
+      Download::Curl.new("https://homebrew.bintray.com/bottles/gcc-7.2.0.sierra.bottle.tar.gz", to: destination_dir.join("5")),
+      Download::Curl.new("https://homebrew.bintray.com/bottles/gcc-7.2.0.sierra.bottle.tar.gz", to: destination_dir.join("6")),
+      Download::Curl.new("https://homebrew.bintray.com/bottles/gcc-7.2.0.sierra.bottle.tar.gz", to: destination_dir.join("7")),
+      Download::Curl.new("https://homebrew.bintray.com/bottles/gcc-7.2.0.sierra.bottle.tar.gz", to: destination_dir.join("8")),
+      Download::Curl.new("https://homebrew.bintray.com/bottles/gcc-7.2.0.sierra.bottle.tar.gz", to: destination_dir.join("9")),
     ]
 
     ParallelDownloader.new(*downloads).download
