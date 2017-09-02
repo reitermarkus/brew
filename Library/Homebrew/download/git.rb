@@ -39,9 +39,11 @@ module Download
         stdout.close
 
         buffer = ""
+        err = ""
 
         stderr.each_char do |char|
           buffer << char.sub(",", ".")
+          err << char
           next unless char == "%"
 
           begin
@@ -66,7 +68,7 @@ module Download
 
         exit_status = thread.value
 
-        raise Error, buffer.strip unless exit_status.success?
+        raise Error, err.strip unless exit_status.success?
       end
     end
   end
