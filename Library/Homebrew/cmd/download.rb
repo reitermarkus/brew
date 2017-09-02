@@ -1,21 +1,30 @@
 require "download"
 
-class ParallelDownloader
-  attr_reader :downloads, :download_queue, :size
-  private :downloads, :download_queue
+Homebrew.install_gem_setup_path! "concurrent-ruby", nil, nil
+require 'concurrent'
 
-  def initialize(*downloads, size: 8)
+class ParallelDownloader
+  attr_reader :downloads, :download_queue, :size, :host_semaphores
+  private :downloads, :download_queue, :host_semaphores
+
+  def initialize(*downloads, size: 8, downloads_per_host: {})
     @downloads = downloads
     @download_queue = Queue.new
     @size = size
+
+    hosts = downloads.map(&:uri).map(&:host).uniq
+
+    @host_semaphores = Hash[hosts.map { |h|
+      [h, Concurrent::Semaphore.new(downloads_per_host.fetch(h, 1))]
+    }]
 
     downloads.each do |dl|
       @download_queue.enq dl
       dl.add_observer self
     end
 
-    @output_mutex = Mutex.new
-    @outputters = Queue.new
+    @outputter_thread = Concurrent::SingleThreadExecutor.new
+    @outputter_pool = Concurrent::SerializedExecutionDelegator.new(@outputter_thread)
   end
 
   def self.width
@@ -35,28 +44,20 @@ class ParallelDownloader
   end
 
   def update
-    thread = Thread.new do
-      @output_mutex.synchronize do
-        until @outputters.empty?
-          t = @outputters.deq
-          t.kill unless t == Thread.current
-        end
+    @outputter_pool.post do
+      lines = downloads.map { |dl| self.class.update_display(dl.uri, dl.progress) }.join
 
-        lines = downloads.map { |dl| self.class.update_display(dl.uri, dl.progress) }.join
-
-        if $stdout.tty?
-          print "\e[" << downloads.count.to_s << "A" << lines
-        elsif downloads.all?(&:ended?)
-          print lines
-        end
+      if $stdout.tty?
+        print "\e[" << downloads.count.to_s << "A" << lines
+      elsif downloads.all?(&:ended?)
+        print lines
       end
     end
-
-    @outputters.enq thread
   end
 
   def download
-    downloading = Queue.new
+    pool = Concurrent::FixedThreadPool.new(size)
+    promises = []
 
     if $stdout.tty?
       # Hide cursor to avoid “flickering”.
@@ -64,40 +65,32 @@ class ParallelDownloader
       print "\n" * downloads.count
     end
 
-    hosts = Set.new
-
     loop do
-      break if download_queue.empty? && downloading.empty?
-      unless download_queue.empty?
-        if downloading.size < size
-          dl = download_queue.deq
-          if hosts.add?(dl.uri.host)
-            downloading.enq dl
-            dl.start
-          else
-            download_queue.enq dl
+      break if download_queue.empty?
+      dl = download_queue.deq
+      host = dl.uri.host
+      if host_semaphores[host].try_acquire
+        promises << Concurrent::Promise.execute(executor: pool) do
+          begin
+            dl.download_routine
+            dl.delete_observer self
+          ensure
+            host_semaphores[host].release
           end
         end
-      end
-
-      next if downloading.empty?
-
-      dl = downloading.deq
-
-      if dl.ended?
-        dl.delete_observers
-        hosts.delete dl.uri.host
       else
-        downloading.enq dl
+        download_queue.enq dl
       end
     end
 
-    loop do
-      break if @outputters.empty?
-      thread = @outputters.deq
-      thread.join
-    end
+    Concurrent::Promise.zip(*promises).value!
+
+    pool.shutdown
+    pool.wait_for_termination
   ensure
+    @outputter_pool.shutdown
+    @outputter_pool.wait_for_termination
+
     if $stdout.tty?
       # Don't hide the cursor forever.
       print "\e[?25h"
@@ -117,6 +110,8 @@ module Homebrew
     downloads = [
       Download::Git.new("git://github.com/Homebrew/brew.git", to: "#{destination_dir}/brew"),
       Download::Svn.new("https://caml.inria.fr/svn/ocaml/trunk",  to: "#{destination_dir}/ocaml"),
+      Download::Svn.new("http://abcl.org/svn/trunk/abcl",  to: "#{destination_dir}/abcl"),
+      Download::Svn.new("https://ssl.icu-project.org/repos/icu/trunk/icu4c",  to: "#{destination_dir}/icu4c"),
       Download::Curl.new("https://www.kernel.org/pub/software/scm/git/git-2.14.1.tar.xz", to: destination_dir),
       Download::Curl.new("https://www.python.org/ftp/python/3.6.2/Python-3.6.2.tar.xz", to: destination_dir),
       Download::Curl.new("https://homebrew.bintray.com/bottles/gcc-7.2.0.sierra.bottle.tar.gz", to: destination_dir.join("1")),
@@ -130,7 +125,7 @@ module Homebrew
       Download::Curl.new("https://homebrew.bintray.com/bottles/gcc-7.2.0.sierra.bottle.tar.gz", to: destination_dir.join("9")),
     ]
 
-    ParallelDownloader.new(*downloads).download
+    ParallelDownloader.new(*downloads, downloads_per_host: { "homebrew.bintray.com" => 3 }).download
 
     downloads.each do |dl|
       raise dl.exception if dl.exception
