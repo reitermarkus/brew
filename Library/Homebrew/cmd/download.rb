@@ -72,7 +72,7 @@ class ParallelDownloader
       if host_semaphores[host].try_acquire
         promises << Concurrent::Promise.execute(executor: pool) do
           begin
-            dl.download_routine
+            dl.start!
             dl.delete_observer self
           ensure
             host_semaphores[host].release

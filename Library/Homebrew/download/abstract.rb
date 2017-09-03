@@ -15,38 +15,42 @@ module Download
       @uri = URI(uri)
       @destination = Pathname(to).expand_path
       @mutex = Mutex.new
-      @status = :stopped
+      @status = :pending
       @progress = 0.0
     end
 
-    def uri=(uri)
-      @mutex.synchronize do
-        @uri = uri
-      end
-
-      notify_observers
-    end
-
     def start
+      return if running?
+
       @mutex.synchronize do
-        next unless changed(@status != :running)
+        changed(true)
         @status = :running
+        @progress = 0.0
 
         @thread = Thread.new do
-          self.status = begin
-            self.progress = 0.0
+          begin
             thread_routine
-            self.progress = 100.0
-            :finished
-          rescue StandardError => e
-            @exception = e
-            :failed
+            @mutex.synchronize do
+              @status = :finished
+              @progress = 100.0
+            end
+            changed(true)
+            notify_observers
+          rescue StandardError
+            self.status = :failed
+            raise
           end
         end
+
         @thread.abort_on_exception = true
       end
 
       notify_observers
+    end
+
+    def start!
+      start
+      value
     end
 
     def thread_routine
@@ -57,16 +61,11 @@ module Download
       @thread && @thread.terminate
       @thread = nil
 
-      @mutex.synchronize do
-        @status = :stopped
-      end
-
-      notify_observers
+      self.status = :pending
     end
 
-    def wait
-      @thread && @thread.join
-      @thread = nil
+    def value
+      @thread && @thread.value
     end
 
     def status
@@ -100,6 +99,14 @@ module Download
       notify_observers
     end
     private :progress=
+
+    def running?
+      status == :running
+    end
+
+    def pending?
+      status == :pending
+    end
 
     def ended?
       [:finished, :failed].include?(status)
