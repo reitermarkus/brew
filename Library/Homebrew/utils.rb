@@ -227,6 +227,7 @@ module Homebrew
       odie "Failed to install/update the '#{name}' gem." if exit_code.nonzero?
     end
 
+    return unless executable
     return if which(executable)
     odie <<~EOS
       The '#{name}' gem is installed but couldn't find '#{executable}' in the PATH:
