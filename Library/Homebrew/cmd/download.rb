@@ -1,7 +1,7 @@
 require "download"
 
 Homebrew.install_gem_setup_path! "concurrent-ruby", nil, nil
-require 'concurrent'
+require "concurrent"
 
 class ParallelDownloader
   attr_reader :downloads, :download_queue, :size, :host_semaphores
@@ -110,8 +110,8 @@ module Homebrew
     downloads = [
       Download::Git.new("git://github.com/Homebrew/brew.git", to: "#{destination_dir}/brew"),
       Download::Svn.new("https://caml.inria.fr/svn/ocaml/trunk",  to: "#{destination_dir}/ocaml"),
-      Download::Svn.new("http://abcl.org/svn/trunk/abcl",  to: "#{destination_dir}/abcl"),
-      Download::Svn.new("https://ssl.icu-project.org/repos/icu/trunk/icu4c",  to: "#{destination_dir}/icu4c"),
+      Download::Svn.new("http://abcl.org/svn/trunk/abcl", to: "#{destination_dir}/abcl"),
+      Download::Svn.new("https://ssl.icu-project.org/repos/icu/trunk/icu4c", to: "#{destination_dir}/icu4c"),
       Download::Curl.new("https://www.kernel.org/pub/software/scm/git/git-2.14.1.tar.xz", to: destination_dir),
       Download::Curl.new("https://www.python.org/ftp/python/3.6.2/Python-3.6.2.tar.xz", to: destination_dir),
       Download::Curl.new("https://homebrew.bintray.com/bottles/gcc-7.2.0.sierra.bottle.tar.gz", to: destination_dir.join("1")),
