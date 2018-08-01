@@ -23,7 +23,6 @@ rescue LoadError => e
 end
 
 def ohai(title, *sput)
-  title = Tty.truncate(title) if $stdout.tty? && !ARGV.verbose?
   puts Formatter.headline(title, color: :blue)
   puts sput
 end
@@ -31,13 +30,10 @@ end
 def odebug(title, *sput)
   return unless ARGV.debug?
   puts Formatter.headline(title, color: :magenta)
-  puts sput unless sput.empty?
+  puts sput
 end
 
-def oh1(title, options = {})
-  if $stdout.tty? && !ARGV.verbose? && options.fetch(:truncate, :auto) == :auto
-    title = Tty.truncate(title)
-  end
+def oh1(title)
   puts Formatter.headline(title, color: :green)
 end
 

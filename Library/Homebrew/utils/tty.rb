@@ -14,10 +14,6 @@ module Tty
     end
   end
 
-  def truncate(string)
-    (w = width).zero? ? string.to_s : string.to_s[0, w - 4]
-  end
-
   COLOR_CODES = {
     red: 31,
     green: 32,

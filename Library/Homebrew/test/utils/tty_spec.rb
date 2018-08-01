@@ -15,20 +15,6 @@ describe Tty do
     end
   end
 
-  describe "::truncate" do
-    it "truncates the text to the terminal width, minus 4, to account for '==> '" do
-      allow(subject).to receive(:width).and_return(15)
-
-      expect(subject.truncate("foobar something very long")).to eq("foobar some")
-      expect(subject.truncate("truncate")).to eq("truncate")
-    end
-
-    it "doesn't truncate the text if the terminal is unsupported, i.e. the width is 0" do
-      allow(subject).to receive(:width).and_return(0)
-      expect(subject.truncate("foobar something very long")).to eq("foobar something very long")
-    end
-  end
-
   context "when $stdout is not a TTY" do
     before do
       allow($stdout).to receive(:tty?).and_return(false)
