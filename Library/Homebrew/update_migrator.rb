@@ -4,7 +4,7 @@ require "hbc/download"
 module UpdateMigrator
   class << self
     def formula_resources(formula)
-      specs = [formula.stable, formula.devel, formula.head].compact
+      specs = [*formula.stable, *formula.devel, *formula.head]
 
       [*formula.bottle&.resource] + specs.flat_map do |spec|
         [
@@ -56,6 +56,8 @@ module UpdateMigrator
           extname = parse_extname(url)
           old_location = downloader.cache/"#{name}-#{version}#{extname}"
           new_location = downloader.cache/"#{name}--#{version}#{extname}"
+
+          puts "#{old_location} -> #{new_location}"
 
           next unless old_location.file?
 
