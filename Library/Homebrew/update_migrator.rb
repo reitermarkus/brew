@@ -4,7 +4,7 @@ require "hbc/download"
 module UpdateMigrator
   class << self
     def formula_resources(formula)
-      specs = [formula.stable, formula.devel, formula.head].compact
+      specs = [*formula.stable, *formula.devel, *formula.head]
 
       [*formula.bottle&.resource] + specs.flat_map do |spec|
         [
@@ -40,6 +40,9 @@ module UpdateMigrator
 
       return if ENV.key?("HOMEBREW_DISABLE_LOAD_FORMULA")
 
+      return unless HOMEBREW_CACHE.directory?
+      return if HOMEBREW_CACHE.children.empty?
+
       ohai "Migrating cache entries..."
 
       Formula.each do |formula|
@@ -53,6 +56,8 @@ module UpdateMigrator
           extname = parse_extname(url)
           old_location = downloader.cache/"#{name}-#{version}#{extname}"
           new_location = downloader.cache/"#{name}--#{version}#{extname}"
+
+          puts "#{old_location} -> #{new_location}"
 
           next unless old_location.file?
 
@@ -77,6 +82,9 @@ module UpdateMigrator
       return if initial_version && initial_version > "1.7.2"
 
       return if ENV.key?("HOMEBREW_DISABLE_LOAD_FORMULA")
+
+      return unless HOMEBREW_CACHE.directory?
+      return if HOMEBREW_CACHE.children.empty?
 
       ohai "Migrating cache entries..."
 
