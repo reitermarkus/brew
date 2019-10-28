@@ -230,8 +230,17 @@ class FormulaInstaller
 
     recursive_dependencies = []
     recursive_formulae.each do |dep|
-      dep_recursive_dependencies = dep.recursive_dependencies.map(&:to_s)
-      if dep_recursive_dependencies.include?(formula.name)
+      dep_recursive_dependencies = dep.recursive_dependencies
+
+      dep_recursive_dependencies.each do |dep_recursive_dep|
+        next unless dep_recursive_dep.to_s == formula.name
+
+        # If we are a recursive build dependency of an already
+        # installed dependency, allow installing ourself.
+        if dep_recursive_dep.build? && (dep.installed? || install_bottle_for?(dep, effective_build_options_for(dep)))
+          next
+        end
+
         recursive_dependencies << "#{formula.full_name} depends on #{dep.full_name}"
         recursive_dependencies << "#{dep.full_name} depends on #{formula.full_name}"
       end
@@ -244,9 +253,19 @@ class FormulaInstaller
       EOS
     end
 
-    if recursive_formulae.flat_map(&:recursive_dependencies)
-                         .map(&:to_s)
-                         .include?(formula.name)
+    if recursive_formulae.any? do |dep|
+      dep.recursive_dependencies.any? do |dep_recursive_dep|
+        next false unless dep_recursive_dep.to_s == formula.name
+
+        # If we are a recursive build dependency of an already
+        # installed dependency, allow installing ourself.
+        if dep_recursive_dep.build? && (dep.installed? || install_bottle_for?(dep, effective_build_options_for(dep)))
+          next false
+        end
+
+        true
+      end
+    end
       raise CannotInstallFormulaError, <<~EOS
         #{formula.full_name} contains a recursive dependency on itself!
       EOS
