@@ -540,7 +540,7 @@ class ErrorDuringExecution < RuntimeError
   end
 end
 
-# Raised by {Pathname#verify_checksum} when "expected" is nil or empty.
+# Raised by {Pathname#verify_checksum} when `expected` is `nil` or empty.
 class ChecksumMissingError < ArgumentError; end
 
 # Raised by {Pathname#verify_checksum} when verification fails.

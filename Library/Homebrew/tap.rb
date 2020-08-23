@@ -227,7 +227,7 @@ class Tap
   # @param clone_target [String] If passed, it will be used as the clone remote.
   # @param force_auto_update [Boolean, nil] If present, whether to override the
   #   logic that skips non-GitHub repositories during auto-updates.
-  # @param full_clone [Boolean] If set as true, full clone will be used. If unset/nil, means "no change".
+  # @param full_clone [Boolean] If set as true, full clone will be used. If unset/nil, means “no change”.
   # @param quiet [Boolean] If set, suppress all output.
   def install(full_clone: true, quiet: false, clone_target: nil, force_auto_update: nil)
     require "descriptions"
@@ -277,7 +277,7 @@ class Tap
       end
     rescue Interrupt, RuntimeError
       ignore_interrupts do
-        # wait for git to possibly cleanup the top directory when interrupt happens.
+        # Wait for `git` to possibly clean up the top directory when an interrupt happens.
         sleep 0.1
         FileUtils.rm_rf path
         path.parent.rmdir_if_possible

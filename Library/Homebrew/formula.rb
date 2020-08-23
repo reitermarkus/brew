@@ -1369,7 +1369,7 @@ class Formula
   end
 
   # Standard parameters for CMake builds.
-  # Setting `CMAKE_FIND_FRAMEWORK` to "LAST" tells CMake to search for our
+  # Setting `CMAKE_FIND_FRAMEWORK` to `"LAST"` tells CMake to search for our
   # libraries before trying to utilize Frameworks, many of which will be from
   # 3rd party installs.
   # Note: there isn't a std_autotools variant because autotools is a lot
@@ -1400,13 +1400,13 @@ class Formula
     ["-trimpath", "-o", bin/name]
   end
 
-  # Standard parameters for cabal-v2 builds.
+  # Standard parameters for cabal v2 builds.
   def std_cabal_v2_args
-    # cabal-install's dependency-resolution backtracking strategy can
+    # `cabal-install`'s dependency-resolution backtracking strategy can
     # easily need more than the default 2,000 maximum number of
-    # "backjumps," since Hackage is a fast-moving, rolling-release
+    # backjumps, since Hackage is a fast-moving, rolling-release
     # target. The highest known needed value by a formula was 43,478
-    # for git-annex, so 100,000 should be enough to avoid most
+    # for `git-annex`, so 100,000 should be enough to avoid most
     # gratuitous backjumps build failures.
     ["--jobs=#{ENV.make_jobs}", "--max-backjumps=100000", "--install-method=copy", "--installdir=#{bin}"]
   end
@@ -1928,12 +1928,12 @@ class Formula
   #                       "--disable-silent-rules", "--prefix=#{prefix}",
   #                       *args # our custom arg list (needs `*` to unpack)
   #
-  # # If there is a "make", "install" available, please use it!
+  # # If there is a `make install` available, please use it!
   # system "make", "install"</pre>
   def system(cmd, *args)
     verbose_using_dots = Homebrew::EnvConfig.verbose_using_dots?
 
-    # remove "boring" arguments so that the important ones are more likely to
+    # Remove “boring” arguments so that the important ones are more likely to
     # be shown considering that we trim long ohai lines to the terminal width
     pretty_args = args.dup
     unless verbose?

@@ -205,7 +205,7 @@ module Cask
       end
       private :quit
 
-      # :signal should come after :quit so it can be used as a backup when :quit fails
+      # `:signal` should come after `:quit` so it can be used as a backup when `:quit` fails.
       def uninstall_signal(*signals, command: nil, **_)
         signals.each do |pair|
           raise CaskInvalidError.new(cask, "Each #{stanza} :signal must consist of 2 elements.") unless pair.size == 2
@@ -215,11 +215,11 @@ module Cask
           pids = running_processes(bundle_id).map(&:first)
           next unless pids.any?
 
-          # Note that unlike :quit, signals are sent from the current user (not
-          # upgraded to the superuser). This is a todo item for the future, but
+          # Note that unlike `:quit`, signals are sent from the current user (not
+          # upgraded to the superuser). This is a TODO item for the future, but
           # there should be some additional thought/safety checks about that, as a
-          # misapplied "kill" by root could bring down the system. The fact that we
-          # learned the pid from AppleScript is already some degree of protection,
+          # misapplied `kill` by root could bring down the system. The fact that we
+          # learned the PID from AppleScript is already some degree of protection,
           # though indirect.
           odebug "Unix ids are #{pids.inspect} for processes with bundle identifier #{bundle_id}"
           Process.kill(signal, *pids)
@@ -256,7 +256,7 @@ module Cask
         end
       end
 
-      # :kext should be unloaded before attempting to delete the relevant file
+      # `:kext` should be unloaded before attempting to delete the relevant file.
       def uninstall_kext(*kexts, command: nil, **_)
         kexts.each do |kext|
           ohai "Unloading kernel extension #{kext}"
@@ -272,7 +272,7 @@ module Cask
         end
       end
 
-      # :script must come before :pkgutil, :delete, or :trash so that the script file is not already deleted
+      # `:script` must come before `:pkgutil`, `:delete`, or `:trash` so that the script file is not already deleted.
       def uninstall_script(directives, directive_name: :script, force: false, command: nil, **_)
         # TODO: Create a common `Script` class to run this and Artifact::Installer.
         executable, script_arguments = self.class.read_script_arguments(directives,

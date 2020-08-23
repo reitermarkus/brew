@@ -220,7 +220,7 @@ class Cmd
     when "-dylib"
       args << "-Wl,#{arg}"
     when /^-I(.+)?/
-      # Support both "-Ifoo" (one argument) and "-I foo" (two arguments)
+      # Support both `-Ifoo` (one argument) and `-I foo` (two arguments).
       val  = chuzzle($1) || enum.next
       path = canonical_path(val)
       args << "-I#{val}" if keep?(path) && @iset.add?(path)

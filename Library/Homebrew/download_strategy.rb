@@ -261,9 +261,9 @@ class AbstractFileDownloadStrategy < AbstractDownloadStrategy
     uri_path = URI.decode_www_form_component(uri_path)
 
     # We need a Pathname because we've monkeypatched extname to support double
-    # extensions (e.g. tar.gz).
-    # Given a URL like https://example.com/download.php?file=foo-1.0.tar.gz
-    # the basename we want is "foo-1.0.tar.gz", not "download.php".
+    # extensions (e.g. `tar.gz`).
+    # Given a URL like `https://example.com/download.php?file=foo-1.0.tar.gz`
+    # the basename we want is `foo-1.0.tar.gz`, not `download.php`.
     Pathname.new(uri_path).ascend do |path|
       ext = path.extname[/[^?&]+/]
       return path.basename.to_s[/[^?&]+#{Regexp.escape(ext)}/] if ext
@@ -554,7 +554,7 @@ class SubversionDownloadStrategy < VCSDownloadStrategy
   end
 
   def fetch_repo(target, url, revision = nil, ignore_externals: false)
-    # Use "svn update" when the repository already exists locally.
+    # Use `svn update` when the repository already exists locally.
     # This saves on bandwidth and will have a similar effect to verifying the
     # cache as it will make any changes to get the right revision.
     args = []
@@ -1015,7 +1015,7 @@ class BazaarDownloadStrategy < VCSDownloadStrategy
   end
 
   def clone_repo
-    # "lightweight" means history-less
+    # Create a history-less (`--lightweight`) clone.
     system_command! "bzr",
                     args: ["checkout", "--lightweight", @url, cached_location]
   end

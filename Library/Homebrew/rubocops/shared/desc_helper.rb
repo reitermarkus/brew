@@ -41,13 +41,13 @@ module RuboCop
         # Check the desc for trailing whitespace.
         problem "Description shouldn't have trailing spaces." if regex_match_group(desc, /\s+$/)
 
-        # Check if "command-line" is spelled incorrectly in the desc.
+        # Check if “command-line” is spelled incorrectly in the desc.
         if match = regex_match_group(desc, /(command ?line)/i)
           c = match.to_s[0]
           problem "Description should use \"#{c}ommand-line\" instead of \"#{match}\"."
         end
 
-        # Check if the desc starts with "A" or "An".
+        # Check if the desc starts with “A” or “An”.
         if match = regex_match_group(desc, /^(an?)(?=\s)/i)
           problem "Description shouldn't start with an indefinite article, i.e. \"#{match}\"."
         end
@@ -61,7 +61,7 @@ module RuboCop
         # Check if the desc starts with the formula's or cask's name.
         problem "Description shouldn't start with the #{type} name." if regex_match_group(desc, /^#{name} /i)
 
-        # Check if a full stop is used at the end of a desc (apart from in the case of "etc.").
+        # Check if a full stop is used at the end of a desc (apart from in the case of “etc.”).
         if regex_match_group(desc, /\.$/) && !string_content(desc).end_with?("etc.")
           problem "Description shouldn't end with a full stop."
         end

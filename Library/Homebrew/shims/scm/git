@@ -116,9 +116,9 @@ unset IFS
 
 if executable "/usr/bin/xcode-select"
 then
-  # xcode-select will return empty on no Xcode/CLT configuration.
-  #   /usr/bin/<tool> will be a popup stub under such configuration.
-  # xcrun hangs if xcode-select is set to "/"
+  # `xcode-select` will return empty on no Xcode/CLT configuration.
+  # `/usr/bin/<tool>` will be a popup stub under such configuration.
+  # `xcrun` hangs if `xcode-select` is set to `/`.
   xcode_path="$(/usr/bin/xcode-select -print-path 2>/dev/null)"
   if [[ -z "$xcode_path" ]]
   then

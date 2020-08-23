@@ -67,7 +67,7 @@ class Requirement
   end
 
   # Overriding {#fatal?} is unsupported.
-  # Pass a boolean to the fatal DSL method instead.
+  # Pass a boolean to the `fatal` DSL method instead.
   def fatal?
     self.class.fatal || false
   end
@@ -83,15 +83,15 @@ class Requirement
   end
 
   # Overriding {#modify_build_environment} is unsupported.
-  # Pass a block to the env DSL method instead.
+  # Pass a block to the `env` DSL method instead.
   def modify_build_environment(env: nil, cc: nil, build_bottle: false, bottle_arch: nil)
     satisfied?(env: env, cc: cc, build_bottle: build_bottle, bottle_arch: bottle_arch)
     instance_eval(&env_proc) if env_proc
 
-    # XXX If the satisfy block returns a Pathname, then make sure that it
+    # If the satisfy block returns a Pathname, then make sure that it
     # remains available on the PATH. This makes requirements like
-    #   satisfy { which("executable") }
-    # work, even under superenv where "executable" wouldn't normally be on the
+    #   `satisfy { which("executable") }`
+    # work, even under superenv where `"executable"` wouldn't normally be on the
     # PATH.
     parent = satisfied_result_parent
     return unless parent
