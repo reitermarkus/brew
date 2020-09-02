@@ -36,18 +36,18 @@ module Homebrew
       rc
     ].freeze
 
-    # Executes the livecheck logic for each formula in the `formulae_to_check` array
-    # and prints the results.
+    # Executes the livecheck logic for each formula/cask in the
+    # `formulae_and_casks_to_check` array and prints the results.
     # @return [nil]
-    def livecheck_formulae(formulae_to_check, args)
+    def livecheck_formulae_and_casks(formulae_and_casks_to_check, args)
       # Identify any non-homebrew/core taps in use for current formulae
       non_core_taps = {}
-      formulae_to_check.each do |f|
-        next if f.tap.blank?
-        next if f.tap.name == CoreTap.instance.name
-        next if non_core_taps[f.tap.name]
+      formulae_and_casks_to_check.each do |fc|
+        next if fc.tap.blank?
+        next if fc.tap.name == CoreTap.instance.name
+        next if non_core_taps[fc.tap.name]
 
-        non_core_taps[f.tap.name] = f.tap
+        non_core_taps[fc.tap.name] = fc.tap
       end
       non_core_taps = non_core_taps.sort.to_h
 
@@ -66,7 +66,10 @@ module Homebrew
       @livecheck_strategy_names.freeze
 
       has_a_newer_upstream_version = false
-      formulae_checked = formulae_to_check.sort.map.with_index do |formula, i|
+      formulae_checked = formulae_and_casks_to_check.sort_by(&:name).map.with_index do |formula_or_cask, i|
+        formula = formula_or_cask if formula_or_cask.is_a?(Formula)
+        cask = formula_or_cask if formula_or_cask.is_a?(Cask::Cask)
+
         if args.debug? && i.positive?
           puts <<~EOS
 
@@ -75,19 +78,34 @@ module Homebrew
           EOS
         end
 
-        skip_result = skip_conditions(formula, args: args)
+        skip_result = skip_conditions(formula_or_cask, args: args)
         next skip_result if skip_result != false
 
-        formula.head.downloader.shutup! if formula.head?
+        formula.head.downloader.shutup! if formula&.head?
 
-        current = if formula.head?
-          formula.any_installed_version.version.commit
+        livecheck_version = formula_or_cask.livecheck.version
+        current = if livecheck_version.is_a?(String)
+          livecheck_version
         else
-          formula.version
+          version = if formula
+            if formula.head?
+              formula.any_installed_version.version.commit
+            else
+              formula.version
+            end
+          else
+            Version.new(formula_or_cask.version)
+          end
+          if livecheck_version.is_a?(Array)
+            separator, method = livecheck_version
+            Version.new(version.to_s.split(separator, 2).try(method))
+          else
+            version
+          end
         end
 
-        latest = if formula.stable?
-          version_info = latest_version(formula, args: args)
+        latest = if formula&.stable? || cask
+          version_info = latest_version(formula_or_cask, args: args)
           version_info[:latest] if version_info.present?
         else
           formula.head.downloader.fetch_last_commit
@@ -99,14 +117,14 @@ module Homebrew
 
           next version_info if version_info.is_a?(Hash) && version_info[:status] && version_info[:messages]
 
-          next status_hash(formula, "error", [no_versions_msg], args: args)
+          next status_hash(formula_or_cask, "error", [no_versions_msg], args: args)
         end
 
         if (m = latest.to_s.match(/(.*)-release$/)) && !current.to_s.match(/.*-release$/)
           latest = Version.new(m[1])
         end
 
-        is_outdated = if formula.head?
+        is_outdated = if formula&.head?
           # A HEAD-only formula is considered outdated if the latest upstream
           # commit hash is different than the installed version's commit hash
           (current != latest)
@@ -114,10 +132,9 @@ module Homebrew
           (current < latest)
         end
 
-        is_newer_than_upstream = formula.stable? && (current > latest)
+        is_newer_than_upstream = (formula&.stable? || cask) && (current > latest)
 
         info = {
-          formula: formula_name(formula, args: args),
           version: {
             current:             current.to_s,
             latest:              latest.to_s,
@@ -125,10 +142,12 @@ module Homebrew
             newer_than_upstream: is_newer_than_upstream,
           },
           meta:    {
-            livecheckable: formula.livecheckable?,
+            livecheckable: formula_or_cask.livecheckable?,
           },
         }
-        info[:meta][:head_only] = true if formula.head?
+        info[:formula] = formula_name(formula, args: args) if formula
+        info[:cask] = cask_name(cask, args: args) if cask
+        info[:meta][:head_only] = true if formula&.head?
         info[:meta].merge!(version_info[:meta]) if version_info.present? && version_info.key?(:meta)
 
         next if args.newer_only? && !info[:version][:outdated]
@@ -146,9 +165,9 @@ module Homebrew
         Homebrew.failed = true
 
         if args.json?
-          status_hash(formula, "error", [e.to_s], args: args)
+          status_hash(formula_or_cask, "error", [e.to_s], args: args)
         elsif !args.quiet?
-          onoe "#{Tty.blue}#{formula_name(formula, args: args)}#{Tty.reset}: #{e}"
+          onoe "#{Tty.blue}#{formula_or_cask_name(formula_or_cask, args: args)}#{Tty.reset}: #{e}"
           nil
         end
       end
@@ -160,6 +179,18 @@ module Homebrew
       puts JSON.generate(formulae_checked.compact) if args.json?
     end
 
+    def formula_or_cask_name(formula_or_cask, args:)
+      if formula_or_cask.is_a?(Formula)
+        formula_name(formula_or_cask, args: args)
+      else
+        cask_name(formula_or_cask, args: args)
+      end
+    end
+
+    def cask_name(cask, args:)
+      args.full_name? ? cask.full_name : cask.token
+    end
+
     # Returns the fully-qualified name of a formula if the full_name argument is
     # provided, returns the name otherwise.
     # @return [String]
@@ -167,18 +198,25 @@ module Homebrew
       args.full_name? ? formula.full_name : formula.name
     end
 
-    def status_hash(formula, status_str, messages = nil, args:)
+    def status_hash(formula_or_cask, status_str, messages = nil, args:)
+      formula = formula_or_cask if formula_or_cask.is_a?(Formula)
+
       status_hash = {
-        formula: formula_name(formula, args: args),
-        status:  status_str,
+        status: status_str,
       }
       status_hash[:messages] = messages if messages.is_a?(Array)
 
+      if formula
+        status_hash[:formula] = formula_name(formula, args: args)
+      else
+        status_hash[:cask] = formula_name(formula_or_cask, args: args)
+      end
+
       if args.verbose?
         status_hash[:meta] = {
-          livecheckable: formula.livecheckable?,
+          livecheckable: formula_or_cask.livecheckable?,
         }
-        status_hash[:meta][:head_only] = true if formula.head?
+        status_hash[:meta][:head_only] = true if formula&.head?
       end
 
       status_hash
@@ -187,8 +225,10 @@ module Homebrew
     # If a formula has to be skipped, it prints or returns a Hash contaning the reason
     # for doing so, else it returns false.
     # @return [Hash, nil, Boolean]
-    def skip_conditions(formula, args:)
-      if formula.deprecated? && !formula.livecheckable?
+    def skip_conditions(formula_or_cask, args:)
+      formula = formula_or_cask if formula_or_cask.is_a?(Formula)
+
+      if formula&.deprecated? && !formula.livecheckable?
         return status_hash(formula, "deprecated", args: args) if args.json?
 
         unless args.quiet?
@@ -197,7 +237,7 @@ module Homebrew
         end
       end
 
-      if formula.versioned_formula? && !formula.livecheckable?
+      if formula&.versioned_formula? && !formula.livecheckable?
         return status_hash(formula, "versioned", args: args) if args.json?
 
         unless args.quiet?
@@ -206,7 +246,7 @@ module Homebrew
         end
       end
 
-      if formula.head? && !formula.any_version_installed?
+      if formula&.head? && !formula.any_version_installed?
         head_only_msg = "HEAD only formula must be installed to be livecheckable"
         return status_hash(formula, "error", [head_only_msg], args: args) if args.json?
 
@@ -216,21 +256,21 @@ module Homebrew
         end
       end
 
-      is_gist = formula.stable&.url&.include?("gist.github.com")
-      if formula.livecheck.skip? || is_gist
-        skip_msg = if formula.livecheck.skip_msg.is_a?(String) &&
-                      formula.livecheck.skip_msg.present?
-          formula.livecheck.skip_msg.to_s
+      is_gist = formula&.stable&.url&.include?("gist.github.com")
+      if formula_or_cask.livecheck.skip? || is_gist
+        skip_msg = if formula_or_cask.livecheck.skip_msg.is_a?(String) &&
+                      formula_or_cask.livecheck.skip_msg.present?
+          formula_or_cask.livecheck.skip_msg.to_s
         elsif is_gist
           "Stable URL is a GitHub Gist"
         else
           ""
         end
 
-        return status_hash(formula, "skipped", (skip_msg.blank? ? nil : [skip_msg]), args: args) if args.json?
+        return status_hash(formula_or_cask, "skipped", (skip_msg.blank? ? nil : [skip_msg]), args: args) if args.json?
 
         unless args.quiet?
-          puts "#{Tty.red}#{formula_name(formula, args: args)}#{Tty.reset} : skipped" \
+          puts "#{Tty.red}#{formula_or_cask_name(formula_or_cask, args: args)}#{Tty.reset} : skipped" \
               "#{" - #{skip_msg}" if skip_msg.present?}"
           return
         end
@@ -242,8 +282,8 @@ module Homebrew
     # Formats and prints the livecheck result for a formula.
     # @return [nil]
     def print_latest_version(info, args:)
-      formula_s = "#{Tty.blue}#{info[:formula]}#{Tty.reset}"
-      formula_s += " (guessed)" if !info[:meta][:livecheckable] && args.verbose?
+      formula_or_cask_s = "#{Tty.blue}#{info[:formula] || info[:cask]}#{Tty.reset}"
+      formula_or_cask_s += " (guessed)" if !info[:meta][:livecheckable] && args.verbose?
 
       current_s = if info[:version][:newer_than_upstream]
         "#{Tty.red}#{info[:version][:current]}#{Tty.reset}"
@@ -257,12 +297,12 @@ module Homebrew
         info[:version][:latest]
       end
 
-      puts "#{formula_s} : #{current_s} ==> #{latest_s}"
+      puts "#{formula_or_cask_s} : #{current_s} ==> #{latest_s}"
     end
 
     # Returns an Array containing the formula URLs that can be used by livecheck.
     # @return [Array]
-    def checkable_urls(formula)
+    def checkable_formula_urls(formula)
       urls = []
       urls << formula.head.url if formula.head
       if formula.stable
@@ -272,6 +312,21 @@ module Homebrew
       urls << formula.homepage if formula.homepage
 
       urls.compact
+    end
+
+    def checkable_cask_urls(cask)
+      urls = []
+      urls << cask.url.to_s
+      urls << cask.homepage if cask.homepage
+      urls.compact
+    end
+
+    def checkable_urls(formula_or_cask)
+      if formula_or_cask.is_a?(Formula)
+        checkable_formula_urls(formula_or_cask)
+      else
+        checkable_cask_urls(formula_or_cask)
+      end
     end
 
     # Preprocesses and returns the URL used by livecheck.
@@ -306,20 +361,26 @@ module Homebrew
     # Identifies the latest version of the formula and returns a Hash containing
     # the version information. Returns nil if a latest version couldn't be found.
     # @return [Hash, nil]
-    def latest_version(formula, args:)
-      has_livecheckable = formula.livecheckable?
-      livecheck = formula.livecheck
+    def latest_version(formula_or_cask, args:)
+      formula = formula_or_cask if formula_or_cask.is_a?(Formula)
+
+      has_livecheckable = formula_or_cask.livecheckable?
+      livecheck = formula_or_cask.livecheck
       livecheck_regex = livecheck.regex
       livecheck_strategy = livecheck.strategy
       livecheck_url = livecheck.url
 
       urls = [livecheck_url] if livecheck_url.present?
-      urls ||= checkable_urls(formula)
+      urls ||= checkable_urls(formula_or_cask)
 
       if args.debug?
         puts
-        puts "Formula:          #{formula_name(formula, args: args)}"
-        puts "Head only?:       true" if formula.head?
+        if formula
+          puts "Formula:          #{formula_name(formula, args: args)}"
+        else
+          puts "Cask:             #{cask_name(formula_or_cask, args: args)}"
+        end
+        puts "Head only?:       true" if formula&.head?
         puts "Livecheckable?:   #{has_livecheckable ? "Yes" : "No"}"
       end
 
