@@ -340,6 +340,8 @@ module Homebrew
       if url.include?("github.com") && GITHUB_SPECIAL_CASES.none? { |sc| url.include? sc }
         if url.include? "archive"
           url = url.sub(%r{/archive/.*}, ".git") if url.include? "github"
+        elsif url.end_with? "/releases.atom"
+          url = url.sub("/releases.atom", ".git")
         elsif url.include? "releases"
           url = url.sub(%r{/releases/.*}, ".git")
         elsif url.include? "downloads"
