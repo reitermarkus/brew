@@ -88,9 +88,8 @@ module Homebrew
           Version.new(livecheck_version)
         elsif formula&.head?
           formula.any_installed_version.version.commit
-        elsif livecheck_version.is_a?(Array)
-          separator, method = livecheck_version
-          Version.new(formula_or_cask.version.to_s.split(separator, 2).try(method))
+        elsif livecheck_version.is_a?(Symbol)
+          Version.new(Cask::DSL::Version.new(formula_or_cask.version).try(livecheck_version))
         else
           Version.new(formula_or_cask.version)
         end
