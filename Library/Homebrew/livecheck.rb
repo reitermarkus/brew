@@ -19,6 +19,7 @@ class Livecheck
     @skip_msg = nil
     @strategy = nil
     @url = nil
+    @version = nil
   end
 
   # Sets the `@regex` instance variable to the provided `Regexp` or returns the
@@ -84,10 +85,10 @@ class Livecheck
     @url = case val
     when nil
       return @url
-    when :cask_url
-      @formula_or_cask.url.to_s
     when :appcast
       @formula_or_cask.appcast.to_s
+    when :cask_url
+      @formula_or_cask.url.to_s
     when :head, :stable
       @formula_or_cask.send(val).url
     when :homepage
