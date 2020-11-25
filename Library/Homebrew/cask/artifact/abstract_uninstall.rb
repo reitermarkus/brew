@@ -37,6 +37,7 @@ module Cask
 
       attr_reader :directives
 
+      sig { params(cask: Cask, directives: T::Hash[Symbol, T.untyped]).void }
       def initialize(cask, directives)
         directives.assert_valid_keys!(*ORDERED_DIRECTIVES)
 
@@ -106,7 +107,7 @@ module Cask
               +"/Library/LaunchAgents/#{service}.plist",
               +"/Library/LaunchDaemons/#{service}.plist",
             ]
-            paths.each { |elt| elt.prepend(ENV["HOME"]).freeze } unless with_sudo
+            paths.each { |elt| elt.prepend(ENV.fetch("HOME")).freeze } unless with_sudo
             paths = paths.map { |elt| Pathname(elt) }.select(&:exist?)
             paths.each do |path|
               command.run!("/bin/rm", args: ["-f", "--", path], sudo: with_sudo)
@@ -142,7 +143,7 @@ module Cask
         bundle_ids.each do |bundle_id|
           next unless running?(bundle_id)
 
-          unless User.current.gui?
+          unless User.current&.gui?
             opoo "Not logged into a GUI; skipping quitting application ID '#{bundle_id}'."
             next
           end
@@ -407,7 +408,7 @@ module Cask
       end
 
       def recursive_rmdir(*directories, command: nil, **_)
-        success = true
+        success = T.let(true, T::Boolean)
         each_resolved_path(:rmdir, directories) do |_path, resolved_paths|
           resolved_paths.select(&method(:all_dirs?)).each do |resolved_path|
             puts resolved_path.sub(Dir.home, "~")
