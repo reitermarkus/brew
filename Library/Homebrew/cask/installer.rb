@@ -62,13 +62,13 @@ module Cask
       EOS
     end
 
-    def fetch
+    def fetch(quiet: nil)
       odebug "Cask::Installer#fetch"
 
       verify_has_sha if require_sha? && !force?
       satisfy_dependencies
 
-      download
+      download(quiet: quiet)
     end
 
     def stage
@@ -162,9 +162,9 @@ module Cask
       @downloader ||= Download.new(@cask, quarantine: quarantine?)
     end
 
-    sig { returns(Pathname) }
-    def download
-      @download ||= downloader.fetch(verify_download_integrity: @verify_download_integrity)
+    sig { params(quiet: T.nilable(T::Boolean)).returns(Pathname) }
+    def download(quiet: nil)
+      @download ||= downloader.fetch(quiet: quiet, verify_download_integrity: @verify_download_integrity)
     end
 
     def verify_has_sha
@@ -179,7 +179,7 @@ module Cask
 
     def primary_container
       @primary_container ||= begin
-        downloaded_path = download
+        downloaded_path = download(quiet: true)
         UnpackStrategy.detect(downloaded_path, type: @cask.container&.type, merge_xattrs: true)
       end
     end
@@ -189,9 +189,9 @@ module Cask
 
       odebug "Using container class #{primary_container.class} for #{primary_container.path}"
 
-      basename = downloader.basename
+      basename = CGI.unescape(File.basename(@cask.url.path))
 
-      if (nested_container = @cask.container&.nested)
+      if nested_container = @cask.container&.nested
         Dir.mktmpdir do |tmpdir|
           tmpdir = Pathname(tmpdir)
           primary_container.extract(to: tmpdir, basename: basename, verbose: verbose?)

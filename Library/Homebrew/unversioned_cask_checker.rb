@@ -62,20 +62,12 @@ module Homebrew
 
     sig { returns(T.nilable(String)) }
     def guess_cask_version
-      if apps.empty? && pkgs.empty?
-        opoo "Cask #{cask} does not contain any apps or PKG installers."
-        return
-      end
+      raise "Cask #{cask} does not contain any apps or PKG installers." if apps.empty? && pkgs.empty?
 
       Dir.mktmpdir do |dir|
         dir = Pathname(dir)
 
-        installer.yield_self do |i|
-          i.extract_primary_container(to: dir)
-        rescue ErrorDuringExecution => e
-          onoe e
-          return nil
-        end
+        installer.extract_primary_container(to: dir)
 
         info_plist_paths = apps.flat_map do |app|
           top_level_info_plists(Pathname.glob(dir/"**"/app.source.basename/"Contents"/"Info.plist")).sort
@@ -93,7 +85,7 @@ module Homebrew
 
         pkg_paths.each do |pkg_path|
           packages =
-            system_command!("installer", args: ["-plist", "-pkginfo", "-pkg", pkg_path])
+            system_command!("installer", args: ["-plist", "-pkginfo", "-pkg", pkg_path], print_stderr: false)
             .plist
             .map { |package| package.fetch("Package") }
 
@@ -102,10 +94,9 @@ module Homebrew
             FileUtils.rmdir extract_dir
 
             begin
-              system_command! "pkgutil", args: ["--expand-full", pkg_path, extract_dir]
+              system_command! "pkgutil", args: ["--expand-full", pkg_path, extract_dir], print_stderr: false
             rescue ErrorDuringExecution => e
-              onoe "Failed to extract #{pkg_path.basename}: #{e}"
-              next
+              raise "Failed to extract #{pkg_path.basename}: #{e}"
             end
 
             top_level_info_plist_paths = top_level_info_plists(Pathname.glob(extract_dir/"**/Contents/Info.plist"))
@@ -121,7 +112,7 @@ module Homebrew
                 return version.nice_version
               end
             elsif packages.count == 1
-              onoe "#{pkg_path.basename} does not contain a `PackageInfo` file."
+              raise "#{pkg_path.basename} does not contain a `PackageInfo` file."
             end
 
             distribution_path = extract_dir/"Distribution"
@@ -135,9 +126,9 @@ module Homebrew
               return product_version if product_version
             end
 
-            opoo "#{pkg_path.basename} contains multiple packages: #{packages}" if packages.count != 1
+            raise "#{pkg_path.basename} contains multiple packages: #{packages}" if packages.count != 1
 
-            $stderr.puts Pathname.glob(extract_dir/"**/*")
+            odebug Pathname.glob(extract_dir/"**/*")
                                  .map { |path|
                                    regex = %r{\A(.*?\.(app|qlgenerator|saver|plugin|kext|bundle|osax))/.*\Z}
                                    path.to_s.sub(regex, '\1')

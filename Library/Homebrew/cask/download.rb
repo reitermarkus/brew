@@ -19,8 +19,9 @@ module Cask
       @quarantine = quarantine
     end
 
-    def fetch(verify_download_integrity: true)
+    def fetch(quiet: nil, verify_download_integrity: true)
       downloaded_path = begin
+        downloader.shutup! if quiet
         downloader.fetch
         downloader.cached_location
       rescue => e

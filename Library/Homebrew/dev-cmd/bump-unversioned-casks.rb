@@ -22,8 +22,8 @@ module Homebrew
       EOS
       switch "-n", "--dry-run",
              description: "Do everything except caching state and opening pull requests."
-      flag   "--limit=",
-             description: "Maximum runtime in minutes."
+      flag  "--limit=",
+            description: "Maximum runtime in minutes."
       flag   "--state-file=",
              description: "File for caching state."
 
@@ -33,6 +33,9 @@ module Homebrew
 
   sig { void }
   def self.bump_unversioned_casks
+    Homebrew.install_bundler_gems!
+    require "concurrent-ruby"
+
     args = bump_unversioned_casks_args.parse
 
     state_file = if args.state_file.present?
@@ -52,56 +55,123 @@ module Homebrew
 
     checked, unchecked = unversioned_casks.partition { |c| state.key?(c.full_name) }
 
-    queue = Queue.new
+    limit = args.limit.presence&.to_f
+    end_time = Concurrent::MVar.new(limit ? Time.now + limit.minutes : nil)
 
-    # Start with random casks which have not been checked.
-    unchecked.shuffle.each do |c|
-      queue.enq c
+    queue =
+      # Start with random casks which have not been checked.
+      unchecked.shuffle +
+      # Continue with previously checked casks, ordered by when they were last checked.
+      checked.sort_by { |c| state.dig(c.full_name, "check_time") }
+
+    state_file = Concurrent::MVar.new(state_file)
+
+    check_pool = Concurrent::FixedThreadPool.new(3)
+
+    futures = queue.map do |c|
+      [
+        c.token,
+        Concurrent::Promises.future_on(check_pool, c) do |cask|
+          timeout = end_time.borrow { |t| t ? t - Time.now : nil }
+          next if timeout && timeout <= 0
+
+          key = cask.full_name
+
+          new_state = bump_unversioned_cask(cask, state: state.fetch(key, {}), timeout: timeout)
+
+          next [cask, new_state] if new_state.key?(:skip_reason)
+
+          state_file.borrow do |file|
+            state[key] = new_state
+            file.atomic_write JSON.generate(state) unless args.dry_run?
+          end
+
+          [cask, new_state]
+        rescue Interrupt
+          next
+        end,
+      ]
     end
 
-    # Continue with previously checked casks, ordered by when they were last checked.
-    checked.sort_by { |c| state.dig(c.full_name, "check_time") }.each do |c|
-      queue.enq c
+    kill_queue = Queue.new
+    interrupted = false
+
+    trap(:INT) do
+      $stderr.puts "\nWaiting for running threads to finish..."
+      kill_queue.enq :shutdown
+      interrupted = true
     end
 
-    limit = args.limit.presence&.to_i
-    end_time = Time.now + limit.minutes if limit
-
-    until queue.empty? || (end_time && end_time < Time.now)
-      cask = queue.deq
-
-      key = cask.full_name
-
-      new_state = bump_unversioned_cask(cask, state: state.fetch(key, {}), dry_run: args.dry_run?)
-
-      next unless new_state
-
-      state[key] = new_state
-
-      state_file.atomic_write JSON.generate(state) unless args.dry_run?
+    executor = Concurrent::SingleThreadExecutor.new
+    Concurrent::Promises.future_on(executor) do
+      action = kill_queue.deq
+      end_time.set! Time.at(0)
+      check_pool.send(action)
     end
+
+    futures.each do |cask_token, future|
+      cask, new_state = future.value
+
+      if exception = future.reason
+        puts "#{cask_token}: error -- #{exception}"
+      elsif cask.nil?
+        break
+      elsif (skip_reason = new_state.delete(:skip_reason))
+        puts "#{cask}: skipped -- #{skip_reason}"
+      elsif (version = new_state[:version])
+        if cask.version == version
+          puts "#{cask}: #{version}"
+        else
+          puts "#{cask}: #{Formatter.error(cask.version)} --> #{Formatter.success(version)}"
+
+          bump_cask_pr_args = [
+            "bump-cask-pr",
+            "--version", version.to_s,
+            "--sha256", ":no_check",
+            "--message", "Automatic update via `brew bump-unversioned-casks`.",
+            cask.sourcefile_path
+          ]
+
+          if args.dry_run?
+            bump_cask_pr_args << "--dry-run"
+            # oh1 "Would bump #{cask} from #{cask.version} to #{version}"
+          else
+            # oh1 "Bumping #{cask} from #{cask.version} to #{version}"
+          end
+
+          # system_command! HOMEBREW_BREW_FILE, args: bump_cask_pr_args
+        end
+      else
+        puts "#{cask}: could not determine version"
+      end
+    end
+
+    executor.kill
+    check_pool.shutdown
+    check_pool.wait_for_termination
+
+    Homebrew.failed = true if interrupted
   end
 
-  sig {
-    params(cask: Cask::Cask, state: T::Hash[String, T.untyped], dry_run: T.nilable(T::Boolean))
+  sig do
+    params(cask: Cask::Cask, state: T::Hash[String, T.untyped])
       .returns(T.nilable(T::Hash[String, T.untyped]))
-  }
-  def self.bump_unversioned_cask(cask, state:, dry_run:)
-    ohai "Checking #{cask.full_name}"
-
+  end
+  def self.bump_unversioned_cask(cask, state:, timeout:)
     unversioned_cask_checker = UnversionedCaskChecker.new(cask)
 
-    if !unversioned_cask_checker.single_app_cask? && !unversioned_cask_checker.single_pkg_cask?
-      opoo "Skipping, not a single-app or PKG cask."
-      return
+    new_state = {}
+
+    unless !unversioned_cask_checker.single_app_cask? && !unversioned_cask_checker.single_pkg_cask?
+      return { skip_reason: "not a single-app or PKG cask" }
     end
 
     last_check_time = state["check_time"]&.yield_self { |t| Time.parse(t) }
 
     check_time = Time.now
+    new_state[:check_time] = check_time&.iso8601
     if last_check_time && check_time < (last_check_time + 1.day)
-      opoo "Skipping, already checked within the last 24 hours."
-      return
+      return { skip_reason: "already checked within the last 24 hours" }
     end
 
     last_sha256 = state["sha256"]
@@ -114,59 +184,19 @@ module Homebrew
     rescue
       [nil, nil]
     end
+    new_state[:time] = time&.iso8601
+    new_state[:file_size] = file_size
 
     if last_time != time || last_file_size != file_size
-      sha256 = begin
-        Timeout.timeout(5.minutes) do
-          unversioned_cask_checker.installer.download.sha256
-        end
-      rescue => e
-        onoe e
-      end
+      sha256 = unversioned_cask_checker.installer.download(quiet: true).sha256
+      new_state[:sha256] = sha256
 
       if sha256.present? && last_sha256 != sha256
-        version = begin
-          Timeout.timeout(1.minute) do
-            unversioned_cask_checker.guess_cask_version
-          end
-        rescue Timeout::Error
-          onoe "Timed out guessing version for cask '#{cask}'."
-        end
-
-        if version
-          if cask.version == version
-            oh1 "Cask #{cask} is up-to-date at #{version}"
-          else
-            bump_cask_pr_args = [
-              "bump-cask-pr",
-              "--version", version.to_s,
-              "--sha256", ":no_check",
-              "--message", "Automatic update via `brew bump-unversioned-casks`.",
-              cask.sourcefile_path
-            ]
-
-            if dry_run
-              bump_cask_pr_args << "--dry-run"
-              oh1 "Would bump #{cask} from #{cask.version} to #{version}"
-            else
-              oh1 "Bumping #{cask} from #{cask.version} to #{version}"
-            end
-
-            begin
-              system_command! HOMEBREW_BREW_FILE, args: bump_cask_pr_args
-            rescue ErrorDuringExecution => e
-              onoe e
-            end
-          end
-        end
+        version = unversioned_cask_checker.guess_cask_version
+        new_state[:version] = version
       end
     end
 
-    {
-      "sha256"     => sha256,
-      "check_time" => check_time.iso8601,
-      "time"       => time&.iso8601,
-      "file_size"  => file_size,
-    }
+    new_state
   end
 end
