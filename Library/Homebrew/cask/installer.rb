@@ -162,9 +162,10 @@ module Cask
       @downloader ||= Download.new(@cask, quarantine: quarantine?)
     end
 
-    sig { params(quiet: T.nilable(T::Boolean)).returns(Pathname) }
-    def download(quiet: nil)
-      @download ||= downloader.fetch(quiet: quiet, verify_download_integrity: @verify_download_integrity)
+    sig { params(quiet: T.nilable(T::Boolean), timeout: T.nilable(Number)).returns(Pathname) }
+    def download(quiet: nil, timeout: nil)
+      @download ||= downloader.fetch(quiet: quiet, verify_download_integrity: @verify_download_integrity,
+timeout: timeout)
     end
 
     def verify_has_sha
@@ -191,7 +192,7 @@ module Cask
 
       basename = CGI.unescape(File.basename(@cask.url.path))
 
-      if nested_container = @cask.container&.nested
+      if (nested_container = @cask.container&.nested)
         Dir.mktmpdir do |tmpdir|
           tmpdir = Pathname(tmpdir)
           primary_container.extract(to: tmpdir, basename: basename, verbose: verbose?)

@@ -66,7 +66,7 @@ module Homebrew
 
     state_file = Concurrent::MVar.new(state_file)
 
-    check_pool = Concurrent::FixedThreadPool.new(3)
+    check_pool = Concurrent::FixedThreadPool.new(8)
 
     futures = queue.map do |c|
       [
@@ -100,19 +100,26 @@ module Homebrew
       $stderr.puts "\nWaiting for running threads to finish..."
       kill_queue.enq :shutdown
       interrupted = true
+
+      trap(:INT) do
+        kill_queue.enq :kill
+        $stderr.puts "Killing remaining threads..."
+      end
     end
 
     executor = Concurrent::SingleThreadExecutor.new
     Concurrent::Promises.future_on(executor) do
-      action = kill_queue.deq
-      end_time.set! Time.at(0)
-      check_pool.send(action)
+      loop do
+        action = kill_queue.deq
+        end_time.set! Time.at(0)
+        check_pool.send(action)
+      end
     end
 
     futures.each do |cask_token, future|
       cask, new_state = future.value
 
-      if exception = future.reason
+      if (exception = future.reason)
         puts "#{cask_token}: error -- #{exception}"
       elsif cask.nil?
         break
@@ -153,16 +160,18 @@ module Homebrew
     Homebrew.failed = true if interrupted
   end
 
-  sig do
-    params(cask: Cask::Cask, state: T::Hash[String, T.untyped])
+  sig {
+    params(cask: Cask::Cask, state: T::Hash[String, T.untyped], timeout: T.nilable(Number))
       .returns(T.nilable(T::Hash[String, T.untyped]))
-  end
+  }
   def self.bump_unversioned_cask(cask, state:, timeout:)
+    end_time = end_time!(timeout)
+
     unversioned_cask_checker = UnversionedCaskChecker.new(cask)
 
     new_state = {}
 
-    unless !unversioned_cask_checker.single_app_cask? && !unversioned_cask_checker.single_pkg_cask?
+    if !unversioned_cask_checker.single_app_cask? && !unversioned_cask_checker.single_pkg_cask?
       return { skip_reason: "not a single-app or PKG cask" }
     end
 
@@ -179,24 +188,40 @@ module Homebrew
     last_file_size = state["file_size"]
 
     download = Cask::Download.new(cask)
-    time, file_size = begin
-      download.time_file_size
-    rescue
-      [nil, nil]
-    end
+
+    time, file_size = download.time_file_size(timeout: timeout_from_end_time!(end_time))
     new_state[:time] = time&.iso8601
     new_state[:file_size] = file_size
 
     if last_time != time || last_file_size != file_size
-      sha256 = unversioned_cask_checker.installer.download(quiet: true).sha256
+      sha256 = unversioned_cask_checker.installer.download(quiet:   true,
+                                                           timeout: timeout_from_end_time!(end_time)).sha256
       new_state[:sha256] = sha256
 
       if sha256.present? && last_sha256 != sha256
-        version = unversioned_cask_checker.guess_cask_version
+        version = unversioned_cask_checker.guess_cask_version(timeout: timeout_from_end_time!(end_time))
         new_state[:version] = version
       end
     end
 
     new_state
+  end
+
+  def self.end_time!(timeout)
+    return if timeout.nil?
+
+    raise Timeout::Error if timeout <= 0
+
+    Time.now + timeout
+  end
+
+  def self.timeout_from_end_time!(end_time)
+    return if end_time.nil?
+
+    timeout = end_time - Time.now
+
+    raise Timeout::Error if timeout <= 0
+
+    timeout
   end
 end

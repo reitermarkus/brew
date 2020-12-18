@@ -52,7 +52,7 @@ class AbstractDownloadStrategy
   # Download and cache the resource at {#cached_location}.
   #
   # @api public
-  def fetch; end
+  def fetch(timeout: nil); end
 
   # Disable any output during downloading.
   #
@@ -176,7 +176,7 @@ class VCSDownloadStrategy < AbstractDownloadStrategy
   # Download and cache the repository at {#cached_location}.
   #
   # @api public
-  def fetch
+  def fetch(timeout: nil)
     ohai "Cloning #{url}"
 
     if cached_location.exist? && repo_valid?
@@ -353,7 +353,9 @@ class CurlDownloadStrategy < AbstractFileDownloadStrategy
   # Download and cache the file at {#cached_location}.
   #
   # @api public
-  def fetch
+  def fetch(timeout: nil)
+    start_time = Time.now
+
     download_lock = LockFile.new(temporary_path.basename)
     download_lock.lock
 
@@ -364,7 +366,10 @@ class CurlDownloadStrategy < AbstractFileDownloadStrategy
 
       ohai "Downloading #{url}"
 
-      resolved_url, _, url_time, = resolve_url_basename_time_file_size(url)
+      resolve_timeout = timeout - (Time.now - start_time) if timeout
+      raise Timeout::Error if resolve_timeout && resolve_timeout <= 0
+
+      resolved_url, _, url_time, = resolve_url_basename_time_file_size(url, timeout: timeout)
 
       fresh = if cached_location.exist? && url_time
         url_time <= cached_location.mtime
@@ -378,7 +383,10 @@ class CurlDownloadStrategy < AbstractFileDownloadStrategy
         puts "Already downloaded: #{cached_location}"
       else
         begin
-          _fetch(url: url, resolved_url: resolved_url)
+          download_timeout = timeout - (Time.now - start_time) if timeout
+          raise Timeout::Error if download_timeout && download_timeout <= 0
+
+          _fetch(url: url, resolved_url: resolved_url, timeout: timeout)
         rescue ErrorDuringExecution
           raise CurlDownloadStrategyError, url
         end
@@ -395,6 +403,9 @@ class CurlDownloadStrategy < AbstractFileDownloadStrategy
 
       puts "Trying a mirror..."
       retry
+    rescue Timeout::Error => e
+      $stderr.puts e.backtrace
+      raise Timeout::Error, "timed out downloading #{self.url}"
     end
   ensure
     download_lock&.unlock
@@ -406,19 +417,19 @@ class CurlDownloadStrategy < AbstractFileDownloadStrategy
     rm_rf(temporary_path)
   end
 
-  def resolved_time_file_size
-    _, _, time, file_size = resolve_url_basename_time_file_size(url)
+  def resolved_time_file_size(timeout: nil)
+    _, _, time, file_size = resolve_url_basename_time_file_size(url, timeout: timeout)
     [time, file_size]
   end
 
   private
 
-  def resolved_url_and_basename
-    resolved_url, basename, = resolve_url_basename_time_file_size(url)
+  def resolved_url_and_basename(timeout: nil)
+    resolved_url, basename, = resolve_url_basename_time_file_size(url, timeout: nil)
     [resolved_url, basename]
   end
 
-  def resolve_url_basename_time_file_size(url)
+  def resolve_url_basename_time_file_size(url, timeout: nil)
     @resolved_info_cache ||= {}
     return @resolved_info_cache[url] if @resolved_info_cache.include?(url)
 
@@ -426,7 +437,7 @@ class CurlDownloadStrategy < AbstractFileDownloadStrategy
       url = url.sub(%r{^((ht|f)tps?://)?}, "#{domain.chomp("/")}/")
     end
 
-    out, _, status= curl_output("--location", "--silent", "--head", "--request", "GET", url.to_s)
+    out, _, status= curl_output("--location", "--silent", "--head", "--request", "GET", url.to_s, timeout: timeout)
 
     lines = status.success? ? out.lines.map(&:chomp) : []
 
@@ -485,7 +496,7 @@ class CurlDownloadStrategy < AbstractFileDownloadStrategy
     @resolved_info_cache[url] = [redirect_url, basename, time, file_size]
   end
 
-  def _fetch(url:, resolved_url:)
+  def _fetch(url:, resolved_url:, timeout:)
     ohai "Downloading from #{resolved_url}" if url != resolved_url
 
     if Homebrew::EnvConfig.no_insecure_redirect? &&
@@ -494,7 +505,7 @@ class CurlDownloadStrategy < AbstractFileDownloadStrategy
       raise CurlDownloadStrategyError, url
     end
 
-    curl_download resolved_url, to: temporary_path
+    curl_download resolved_url, to: temporary_path, timeout: timeout
   end
 
   # Curl options to be always passed to curl,
@@ -567,7 +578,7 @@ class CurlApacheMirrorDownloadStrategy < CurlDownloadStrategy
     @combined_mirrors = [*@mirrors, *backup_mirrors]
   end
 
-  def resolve_url_basename_time_file_size(url)
+  def resolve_url_basename_time_file_size(url, timeout: nil)
     if url == self.url
       super("#{apache_mirrors["preferred"]}#{apache_mirrors["path_info"]}")
     else
@@ -592,7 +603,7 @@ end
 class CurlPostDownloadStrategy < CurlDownloadStrategy
   private
 
-  def _fetch(url:, resolved_url:)
+  def _fetch(url:, resolved_url:, timeout:)
     args = if meta.key?(:data)
       escape_data = ->(d) { ["-d", URI.encode_www_form([d])] }
       [url, *meta[:data].flat_map(&escape_data)]
@@ -601,7 +612,7 @@ class CurlPostDownloadStrategy < CurlDownloadStrategy
       query.nil? ? [url, "-X", "POST"] : [url, "-d", query]
     end
 
-    curl_download(*args, to: temporary_path)
+    curl_download(*args, to: temporary_path, timeout: timeout)
   end
 end
 
@@ -641,7 +652,7 @@ class SubversionDownloadStrategy < VCSDownloadStrategy
   # Download and cache the repository at {#cached_location}.
   #
   # @api public
-  def fetch
+  def fetch(timeout: nil)
     if @url.chomp("/") != repo_url || !silent_command("svn", args: ["switch", @url, cached_location]).success?
       clear_cache
     end

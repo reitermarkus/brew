@@ -60,8 +60,10 @@ module Homebrew
       end
     end
 
-    sig { returns(T.nilable(String)) }
-    def guess_cask_version
+    sig { params(timeout: T.nilable(Number)).returns(T.nilable(String)) }
+    def guess_cask_version(timeout: nil)
+      end_time = Time.now + timeout if timeout
+
       raise "Cask #{cask} does not contain any apps or PKG installers." if apps.empty? && pkgs.empty?
 
       Dir.mktmpdir do |dir|
@@ -85,16 +87,22 @@ module Homebrew
 
         pkg_paths.each do |pkg_path|
           packages =
-            system_command!("installer", args: ["-plist", "-pkginfo", "-pkg", pkg_path], print_stderr: false)
+            system_command!(
+              "installer",
+              args: ["-plist", "-pkginfo", "-pkg", pkg_path], print_stderr: false, timeout: end_time - Time.now,
+            )
             .plist
-            .map { |package| package.fetch("Package") }
+            .map do |package|
+              package.fetch("Package")
+            end
 
           Dir.mktmpdir do |extract_dir|
             extract_dir = Pathname(extract_dir)
             FileUtils.rmdir extract_dir
 
             begin
-              system_command! "pkgutil", args: ["--expand-full", pkg_path, extract_dir], print_stderr: false
+              system_command! "pkgutil",
+                              args: ["--expand-full", pkg_path, extract_dir], print_stderr: false, timeout: end_time - Time.now
             rescue ErrorDuringExecution => e
               raise "Failed to extract #{pkg_path.basename}: #{e}"
             end
@@ -129,10 +137,10 @@ module Homebrew
             raise "#{pkg_path.basename} contains multiple packages: #{packages}" if packages.count != 1
 
             odebug Pathname.glob(extract_dir/"**/*")
-                                 .map { |path|
-                                   regex = %r{\A(.*?\.(app|qlgenerator|saver|plugin|kext|bundle|osax))/.*\Z}
-                                   path.to_s.sub(regex, '\1')
-                                 }.uniq
+                           .map { |path|
+                     regex = %r{\A(.*?\.(app|qlgenerator|saver|plugin|kext|bundle|osax))/.*\Z}
+                     path.to_s.sub(regex, '\1')
+                   }.uniq
           ensure
             Cask::Utils.gain_permissions_remove(extract_dir)
             extract_dir.mkpath

@@ -49,7 +49,10 @@ module Utils
         args << "--silent" unless $stdout.tty?
       end
 
+      args << "--connect-timeout" << connect_timeout.round(3) if options[:connect_timeout]
+      args << "--max-time" << max_time.round(3) if options[:max_time]
       args << "--retry" << Homebrew::EnvConfig.curl_retries unless options[:retry] == false
+      args << "--retry-max-time" << retry_max_time.round if options[:retry_max_time]
 
       args + extra_args
     end
@@ -63,6 +66,7 @@ module Utils
         print_stderr: print_stderr,
         debug:        debug,
         verbose:      verbose,
+        timeout:      options[:timeout],
       }.compact
 
       # SSL_CERT_FILE can be incorrectly set by users or portable-ruby and screw
@@ -73,6 +77,8 @@ module Utils
                               **command_options
 
       return result if result.success? || !args.exclude?("--http1.1")
+
+      raise Timeout::Error, result.stderr.chomp if result.status.exitstatus == 28
 
       # Error in the HTTP2 framing layer
       return curl_with_workarounds(*args, "--http1.1", **command_options, **options) if result.status.exitstatus == 16
