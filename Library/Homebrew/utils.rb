@@ -408,30 +408,37 @@ module Kernel
     Pathname.new(cmd).archs
   end
 
-  def ignore_interrupts(_opt = nil)
-    # rubocop:disable Style/GlobalVars
-    $ignore_interrupts_nesting_level = 0 unless defined?($ignore_interrupts_nesting_level)
-    $ignore_interrupts_nesting_level += 1
+  $ignore_interrupts = Monitor.new # rubocop:disable Style/GlobalVars
 
-    $ignore_interrupts_interrupted = false unless defined?($ignore_interrupts_interrupted)
-    old_sigint_handler = trap(:INT) do
-      $ignore_interrupts_interrupted = true
-      $stderr.print "\n"
-      $stderr.puts "One sec, cleaning up..."
-    end
+  def ignore_interrupts(opt = nil, &block)
+    $ignore_interrupts.synchronize do # rubocop:disable Style/GlobalVars
+      unless Thread.current.key?(:ignore_interrupts_nesting_level)
+        Thread.current[:ignore_interrupts_nesting_level] = 0
+      end
+      Thread.current[:ignore_interrupts_nesting_level] += 1
 
-    begin
-      yield
-    ensure
-      trap(:INT, old_sigint_handler)
+      unless Thread.current.key?(:ignore_interrupts_interrupted)
+        Thread.current[:ignore_interrupts_interrupted] = false
+      end
+      old_sigint_handler = trap(:INT) do
+        Thread.current[:ignore_interrupts_interrupted] = true
+        $stderr.puts "\nOne sec, cleaning up..." unless opt == :quietly
+      end
 
-      $ignore_interrupts_nesting_level -= 1
-      if $ignore_interrupts_nesting_level == 0 && $ignore_interrupts_interrupted
-        $ignore_interrupts_interrupted = false
-        raise Interrupt
+      begin
+        Thread.handle_interrupt(Exception => :on_blocking, &block)
+      ensure
+        trap(:INT, old_sigint_handler)
+
+        Thread.current[:ignore_interrupts_nesting_level] -= 1
+        if Thread.current[:ignore_interrupts_nesting_level].zero? && Thread.current[:ignore_interrupts_interrupted]
+          Thread.current[:ignore_interrupts_interrupted] = false
+          raise Interrupt unless old_sigint_handler.respond_to?(:call) && Thread.current == Thread.main
+
+          old_sigint_handler.call
+        end
       end
     end
-    # rubocop:enable Style/GlobalVars
   end
 
   sig { returns(String) }
