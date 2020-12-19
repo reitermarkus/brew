@@ -34,7 +34,7 @@ module Homebrew
   sig { void }
   def self.bump_unversioned_casks
     Homebrew.install_bundler_gems!
-    require "concurrent-ruby"
+    require "concurrent"
 
     args = bump_unversioned_casks_args.parse
 
@@ -56,6 +56,8 @@ module Homebrew
     checked, unchecked = unversioned_casks.partition { |c| state.key?(c.full_name) }
 
     limit = args.limit.presence&.to_f
+
+    timeout = [*limit&.minutes, 5.minutes].min
     end_time = Concurrent::MVar.new(limit ? Time.now + limit.minutes : nil)
 
     queue =
@@ -66,14 +68,12 @@ module Homebrew
 
     state_file = Concurrent::MVar.new(state_file)
 
-    check_pool = Concurrent::FixedThreadPool.new(8)
-
-    futures = queue.map do |c|
+    check_pool = Concurrent::FixedThreadPool.new(4)
+    futures = queue.map do |cask|
       [
-        c.token,
-        Concurrent::Promises.future_on(check_pool, c) do |cask|
-          timeout = end_time.borrow { |t| t ? t - Time.now : nil }
-          next if timeout && timeout <= 0
+        cask.token,
+        Concurrent::Promises.future_on(check_pool, cask, end_time, timeout) do |cask, end_time, timeout|
+          next if end_time.borrow { |t| t ? Time.now > t : false }
 
           key = cask.full_name
 
@@ -87,33 +87,24 @@ module Homebrew
           end
 
           [cask, new_state]
-        rescue Interrupt
-          next
         end,
       ]
     end
+    check_pool.shutdown
 
-    kill_queue = Queue.new
-    interrupted = false
+    sigint = Queue.new
 
-    trap(:INT) do
+    default_trap = trap("INT") do
       $stderr.puts "\nWaiting for running threads to finish..."
-      kill_queue.enq :shutdown
-      interrupted = true
+      sigint.enq true
+      Homebrew.failed = true
 
-      trap(:INT) do
-        kill_queue.enq :kill
-        $stderr.puts "Killing remaining threads..."
-      end
+      trap("INT") { raise Interrupt }
     end
 
-    executor = Concurrent::SingleThreadExecutor.new
-    Concurrent::Promises.future_on(executor) do
-      loop do
-        action = kill_queue.deq
-        end_time.set! Time.at(0)
-        check_pool.send(action)
-      end
+    Concurrent::Promises.future do
+      sigint.deq
+      end_time.set! Time.at(0)
     end
 
     futures.each do |cask_token, future|
@@ -153,11 +144,7 @@ module Homebrew
       end
     end
 
-    executor.kill
-    check_pool.shutdown
     check_pool.wait_for_termination
-
-    Homebrew.failed = true if interrupted
   end
 
   sig {
