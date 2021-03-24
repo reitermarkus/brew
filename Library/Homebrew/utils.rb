@@ -206,7 +206,7 @@ module Kernel
 
     # Don't throw deprecations at all for cached, .brew or .metadata files.
     return if backtrace.any? do |line|
-      next true if line.include?(HOMEBREW_CACHE)
+      next true if line.include?(HOMEBREW_CACHE.to_s)
       next true if line.include?("/.brew/")
       next true if line.include?("/.metadata/")
 

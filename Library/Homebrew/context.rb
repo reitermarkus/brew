@@ -59,12 +59,12 @@ module Context
   end
 
   def with_context(**options)
-    old_context = Thread.current[:context]
+    old_context = Context.current
 
     new_context = ContextStruct.new(
-      debug:   options.fetch(:debug, old_context&.debug?),
-      quiet:   options.fetch(:quiet, old_context&.quiet?),
-      verbose: options.fetch(:verbose, old_context&.verbose?),
+      debug:   options[:debug]   || old_context&.debug?,
+      quiet:   options[:quiet]   || old_context&.quiet?,
+      verbose: options[:verbose] || old_context&.verbose?,
     )
 
     Thread.current[:context] = new_context
