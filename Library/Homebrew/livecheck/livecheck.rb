@@ -82,6 +82,86 @@ module Homebrew
       end
     end
 
+    def check_formula_or_cask(formula_or_cask, json:, full_name:, verbose:, debug:)
+      formula = formula_or_cask if formula_or_cask.is_a?(Formula)
+      cask = formula_or_cask if formula_or_cask.is_a?(Cask::Cask)
+
+      name = formula_or_cask_name(formula_or_cask, full_name: full_name)
+
+      skip_info = SkipConditions.skip_information(formula_or_cask, full_name: full_name, verbose: verbose)
+      return :skip, skip_info if skip_info.present?
+
+      formula&.head&.downloader&.shutup!
+
+      # Use the `stable` version for comparison except for installed
+      # head-only formulae. A formula with `stable` and `head` that's
+      # installed using `--head` will still use the `stable` version for
+      # comparison.
+      current = if formula
+        if formula.head_only?
+          formula.any_installed_version.version.commit
+        else
+          formula.stable.version
+        end
+      else
+        Version.new(formula_or_cask.version)
+      end
+
+      current_str = current.to_s
+      current = LivecheckVersion.create(formula_or_cask, current)
+
+      latest = if formula&.head_only?
+        formula.head.downloader.fetch_last_commit
+      else
+        version_info = latest_version(
+          formula_or_cask,
+          json: json, full_name: full_name, verbose: verbose, debug: debug,
+        )
+        version_info[:latest] if version_info.present?
+      end
+
+      if latest.blank?
+        return :error, version_info if version_info.is_a?(Hash) && version_info[:status] && version_info[:messages]
+
+        return :error, status_hash(formula_or_cask, "error", ["Unable to get versions"], full_name: full_name,
+                                                                                         verbose:   verbose)
+      end
+
+      if (m = latest.to_s.match(/(.*)-release$/)) && !current.to_s.match(/.*-release$/)
+        latest = Version.new(m[1])
+      end
+
+      latest_str = latest.to_s
+      latest = LivecheckVersion.create(formula_or_cask, latest)
+
+      is_outdated = if formula&.head_only?
+        # A HEAD-only formula is considered outdated if the latest upstream
+        # commit hash is different than the installed version's commit hash
+        (current != latest)
+      else
+        (current < latest)
+      end
+
+      is_newer_than_upstream = (formula&.stable? || cask) && (current > latest)
+
+      info = {}
+      info[:formula] = name if formula
+      info[:cask] = name if cask
+      info[:version] = {
+        current:             current_str,
+        latest:              latest_str,
+        outdated:            is_outdated,
+        newer_than_upstream: is_newer_than_upstream,
+      }
+      info[:meta] = {
+        livecheckable: formula_or_cask.livecheckable?,
+      }
+      info[:meta][:head_only] = true if formula&.head_only?
+      info[:meta].merge!(version_info[:meta]) if version_info.present? && version_info.key?(:meta)
+
+      [:success, info]
+    end
+
     # Executes the livecheck logic for each formula/cask in the
     # `formulae_and_casks_to_check` array and prints the results.
     sig {
@@ -140,115 +220,51 @@ module Homebrew
       end
 
       formulae_checked = formulae_and_casks_to_check.map.with_index do |formula_or_cask, i|
-        formula = formula_or_cask if formula_or_cask.is_a?(Formula)
-        cask = formula_or_cask if formula_or_cask.is_a?(Cask::Cask)
-
         use_full_name = full_name || ambiguous_names.include?(formula_or_cask)
-        name = formula_or_cask_name(formula_or_cask, full_name: use_full_name)
 
-        if debug && i.positive?
-          puts <<~EOS
+        status, result = check_formula_or_cask(
+          formula_or_cask,
+          json: json, full_name: use_full_name, verbose: verbose, debug: debug,
+        )
 
-            ----------
+        if debug
+          if i.positive?
+            puts <<~EOS
 
-          EOS
-        elsif debug
-          puts
-        end
+              ----------
 
-        skip_info = SkipConditions.skip_information(formula_or_cask, full_name: use_full_name, verbose: verbose)
-        if skip_info.present?
-          next skip_info if json
-
-          SkipConditions.print_skip_information(skip_info) unless quiet
-          next
-        end
-
-        formula&.head&.downloader&.shutup!
-
-        # Use the `stable` version for comparison except for installed
-        # head-only formulae. A formula with `stable` and `head` that's
-        # installed using `--head` will still use the `stable` version for
-        # comparison.
-        current = if formula
-          if formula.head_only?
-            formula.any_installed_version.version.commit
+            EOS
           else
-            formula.stable.version
+            puts
           end
-        else
-          Version.new(formula_or_cask.version)
         end
 
-        current_str = current.to_s
-        current = LivecheckVersion.create(formula_or_cask, current)
+        case status
+        when :skip
+          next result if json
 
-        latest = if formula&.head_only?
-          formula.head.downloader.fetch_last_commit
-        else
-          version_info = latest_version(
-            formula_or_cask,
-            json: json, full_name: use_full_name, verbose: verbose, debug: debug,
-          )
-          version_info[:latest] if version_info.present?
+          SkipConditions.print_skip_information(result) unless quiet
+          next
+        when :error
+          raise Livecheck::Error, result[:messages].join(", ") unless json
+
+          result
+        when :success
+          next if newer_only && !result[:version][:outdated]
+
+          has_a_newer_upstream_version ||= true
+
+          if json
+            progress&.increment
+            result.except!(:meta) unless verbose
+            next result
+          end
+
+          print_latest_version(result, verbose: verbose, ambiguous_cask: ambiguous_casks.include?(formula_or_cask))
+          nil
         end
-
-        if latest.blank?
-          no_versions_msg = "Unable to get versions"
-          raise Livecheck::Error, no_versions_msg unless json
-
-          next version_info if version_info.is_a?(Hash) && version_info[:status] && version_info[:messages]
-
-          next status_hash(formula_or_cask, "error", [no_versions_msg], full_name: use_full_name, verbose: verbose)
-        end
-
-        if (m = latest.to_s.match(/(.*)-release$/)) && !current.to_s.match(/.*-release$/)
-          latest = Version.new(m[1])
-        end
-
-        latest_str = latest.to_s
-        latest = LivecheckVersion.create(formula_or_cask, latest)
-
-        is_outdated = if formula&.head_only?
-          # A HEAD-only formula is considered outdated if the latest upstream
-          # commit hash is different than the installed version's commit hash
-          (current != latest)
-        else
-          (current < latest)
-        end
-
-        is_newer_than_upstream = (formula&.stable? || cask) && (current > latest)
-
-        info = {}
-        info[:formula] = name if formula
-        info[:cask] = name if cask
-        info[:version] = {
-          current:             current_str,
-          latest:              latest_str,
-          outdated:            is_outdated,
-          newer_than_upstream: is_newer_than_upstream,
-        }
-        info[:meta] = {
-          livecheckable: formula_or_cask.livecheckable?,
-        }
-        info[:meta][:head_only] = true if formula&.head_only?
-        info[:meta].merge!(version_info[:meta]) if version_info.present? && version_info.key?(:meta)
-
-        next if newer_only && !info[:version][:outdated]
-
-        has_a_newer_upstream_version ||= true
-
-        if json
-          progress&.increment
-          info.except!(:meta) unless verbose
-          next info
-        end
-
-        print_latest_version(info, verbose: verbose, ambiguous_cask: ambiguous_casks.include?(formula_or_cask))
-        nil
       rescue => e
         Homebrew.failed = true
-        use_full_name = full_name || ambiguous_names.include?(formula_or_cask)
 
         if json
           progress&.increment
@@ -505,12 +521,12 @@ module Homebrew
         strategy_name = livecheck_strategy_names[strategy]
 
         if debug
-          puts "URL (processed):  #{url}" if url != original_url
+          $stderr.puts "URL (processed):  #{url}" if url != original_url
           if strategies.present? && verbose
-            puts "Strategies:       #{strategies.map { |s| livecheck_strategy_names[s] }.join(", ")}"
+            $stderr.puts "Strategies:       #{strategies.map { |s| livecheck_strategy_names[s] }.join(", ")}"
           end
-          puts "Strategy:         #{strategy.blank? ? "None" : strategy_name}"
-          puts "Regex:            #{livecheck_regex.inspect}" if livecheck_regex.present?
+          $stderr.puts "Strategy:         #{strategy.blank? ? "None" : strategy_name}"
+          $stderr.puts "Regex:            #{livecheck_regex.inspect}" if livecheck_regex.present?
         end
 
         if livecheck_strategy.present?
@@ -547,10 +563,12 @@ module Homebrew
         end
 
         if debug
-          puts "URL (strategy):   #{strategy_data[:url]}" if strategy_data[:url] != url
-          puts "URL (final):      #{strategy_data[:final_url]}" if strategy_data[:final_url]
-          puts "Regex (strategy): #{strategy_data[:regex].inspect}" if strategy_data[:regex] != livecheck_regex
-          puts "Cached?:          Yes" if strategy_data[:cached] == true
+          $stderr.puts "URL (strategy):   #{strategy_data[:url]}" if strategy_data[:url] != url
+          $stderr.puts "URL (final):      #{strategy_data[:final_url]}" if strategy_data[:final_url]
+          if strategy_data[:regex] != livecheck_regex
+            $stderr.puts "Regex (strategy): #{strategy_data[:regex].inspect}"
+          end
+          $stderr.puts "Cached?:          Yes" if strategy_data[:cached] == true
         end
 
         match_version_map.delete_if do |_match, version|
@@ -565,15 +583,15 @@ module Homebrew
         next if match_version_map.blank?
 
         if debug
-          puts
-          puts "Matched Versions:"
+          $stderr.puts
+          $stderr.puts "Matched Versions:"
 
           if verbose
             match_version_map.each do |match, version|
-              puts "#{match} => #{version.inspect}"
+              $stderr.puts "#{match} => #{version.inspect}"
             end
           else
-            puts match_version_map.values.join(", ")
+            $stderr.puts match_version_map.values.join(", ")
           end
         end
 
