@@ -48,13 +48,37 @@ module Homebrew
           only:               T.nilable(Symbol),
           ignore_unavailable: T.nilable(T::Boolean),
           method:             T.nilable(Symbol),
+          recurse_tap:        T::Boolean,
           uniq:               T::Boolean,
         ).returns(T::Array[T.any(Formula, Keg, Cask::Cask)])
       }
-      def to_formulae_and_casks(only: parent&.only_formula_or_cask, ignore_unavailable: nil, method: nil, uniq: true)
+      def to_formulae_and_casks(
+        only: parent&.only_formula_or_cask,
+        ignore_unavailable: nil,
+        method: nil,
+        recurse_tap: false,
+        uniq: false
+      )
         @to_formulae_and_casks ||= {}
         @to_formulae_and_casks[only] ||= downcased_unique_named.flat_map do |name|
+          if name.count("/") == 1 && recurse_tap
+            tap = Tap.fetch(name)
+
+            formulae = if only == :cask
+              []
+            else
+              tap.formula_files.map { |path| load_formula_or_cask(path, only: :formula, method: method) }
+            end
+            casks = if only == :formula
+              []
+            else
+              tap.cask_files.map { |path| load_formula_or_cask(path, only: :cask, method: method) }
+            end
+
+            formulae + casks
+          else
           load_formula_or_cask(name, only: only, method: method)
+          end
         rescue FormulaUnreadableError, FormulaClassUnavailableError,
                TapFormulaUnreadableError, TapFormulaClassUnavailableError,
                Cask::CaskUnreadableError
@@ -65,7 +89,7 @@ module Homebrew
           ignore_unavailable ? [] : raise
         end.freeze
 
-        if uniq
+                if uniq
           @to_formulae_and_casks[only].uniq.freeze
         else
           @to_formulae_and_casks[only]
