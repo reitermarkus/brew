@@ -77,7 +77,7 @@ module Homebrew
 
             formulae + casks
           else
-          load_formula_or_cask(name, only: only, method: method)
+            load_formula_or_cask(name, only: only, method: method)
           end
         rescue FormulaUnreadableError, FormulaClassUnavailableError,
                TapFormulaUnreadableError, TapFormulaClassUnavailableError,
@@ -89,7 +89,7 @@ module Homebrew
           ignore_unavailable ? [] : raise
         end.freeze
 
-                if uniq
+        if uniq
           @to_formulae_and_casks[only].uniq.freeze
         else
           @to_formulae_and_casks[only]
