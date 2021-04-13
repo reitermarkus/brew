@@ -23,11 +23,14 @@ class CacheStoreDatabase
 
     type_ref[:db] ||= CacheStoreDatabase.new(type)
 
-    return_value = yield(type_ref[:db])
-    if type_ref[:count].positive?
-      type_ref[:count] -= 1
-    else
-      type_ref[:count] = 0
+    return_value = begin
+      yield(type_ref[:db])
+    ensure
+      if type_ref[:count].positive?
+        type_ref[:count] -= 1
+      else
+        type_ref[:count] = 0
+      end
     end
 
     if type_ref[:count].zero?

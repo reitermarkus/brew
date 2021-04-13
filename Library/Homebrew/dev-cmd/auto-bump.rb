@@ -3,6 +3,7 @@
 
 require "cli/parser"
 require "livecheck/livecheck"
+require "cache_store"
 
 module Homebrew
   extend T::Sig
@@ -50,6 +51,32 @@ module Homebrew
     end
   end
 
+  class AutoBumpCacheStore < CacheStore
+    def update!(formula_or_cask, state)
+      database.set(formula_or_cask.full_name, state)
+    end
+
+    def fetch(formula_or_cask)
+      state = database.get(formula_or_cask.full_name)
+      return unless state
+
+      status, result = state
+      status = status&.to_sym
+      result = result&.deep_symbolize_keys
+
+      if (valid_until = result&.fetch(:valid_until)&.yield_self { |t| Time.parse(t) }) && valid_until < Time.now
+        delete!(formula_or_cask)
+        return
+      end
+
+      [status, result]
+    end
+
+    def delete!(formula_or_cask)
+      database.delete(formula_or_cask.full_name)
+    end
+  end
+
   def auto_bump
     args = auto_bump_args.parse
 
@@ -63,12 +90,34 @@ module Homebrew
     }.compact
 
     formulae_and_casks.each do |formula_or_cask|
-      status, result = Livecheck.check_formula_or_cask(formula_or_cask, **options)
+      cached_result = CacheStoreDatabase.use(:auto_bump) do |db|
+        AutoBumpCacheStore.new(db).fetch(formula_or_cask)
+      end
+
+      status, result = if cached_result
+        cached_result
+      else
+        begin
+          Livecheck.check_formula_or_cask(formula_or_cask, **options)
+        rescue => e
+          ofail e
+          next
+        end
+      end
 
       cask = result[:cask]
       formula = result[:formula]
 
-      print (cask || formula)
+      print(cask || formula)
+
+      if cached_result
+        print " (from cache)"
+      else
+        CacheStoreDatabase.use(:auto_bump) do |db|
+          result[:valid_until] = Time.now + 1.day
+          AutoBumpCacheStore.new(db).update!(formula_or_cask, [status, result])
+        end
+      end
 
       case status
       when :success
@@ -92,14 +141,16 @@ module Homebrew
         end
 
         bump_args << "--version" << latest
+        bump_args << "--no-audit" if args.no_audit?
         bump_args << "--dry-run" if args.dry_run?
 
         ohai ["brew", *bump_args].shelljoin
         system_command! HOMEBREW_BREW_FILE, args: bump_args, print_stdout: true, print_stderr: true
       else
-        puts ": #{result[:messages]&.join(", ") || result[:status]}"
+        puts ": #{result[:messages]&.join(", ") || result[:status]} #{status.inspect}"
       end
     rescue => e
+      $stderr.puts e.backtrace
       onoe e
     end
   end
