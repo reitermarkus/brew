@@ -178,6 +178,8 @@ module Homebrew
       end
 
       if bundle_installed
+        system bundle, "clean" if groups.empty?
+
         Homebrew::Settings.write(:gemgroups, groups.join(";"))
         @bundle_installed_groups = groups
       end
