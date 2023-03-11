@@ -230,6 +230,12 @@ module Homebrew
                      "\n\n    *Note:* Homebrew doesn't require permissions for any of the scopes, but some " \
                      "developer commands may require additional permissions.",
       },
+      HOMEBREW_GITHUB_APP_ID:                    {
+        description: "Application ID for a GitHub application to be used for submitting PRs.",
+      },
+      HOMEBREW_GITHUB_APP_KEY:                   {
+        description: "Path to the private key for the application specified by `HOMEBREW_GITHUB_APP_ID`.",
+      },
       HOMEBREW_GITHUB_PACKAGES_TOKEN:            {
         description: "Use this GitHub personal access token when accessing the GitHub Packages Registry " \
                      "(where bottles may be stored).",

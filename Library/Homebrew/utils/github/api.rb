@@ -4,6 +4,8 @@
 require "tempfile"
 require "utils/shell"
 require "utils/formatter"
+require "jwt"
+require "openssl"
 
 # A module that interfaces with GitHub, code like PAT scopes, credential handling and API errors.
 module GitHub
@@ -184,7 +186,46 @@ module GitHub
       EOS
     end
 
-    def open_rest(url, data: nil, data_binary_path: nil, request_method: nil, scopes: [].freeze, parse_json: true)
+    sig { returns(T.nilable(String)) }
+    def generate_app_token
+      app_id = Homebrew::EnvConfig.github_app_id
+      app_key = Homebrew::EnvConfig.github_app_key
+
+      return unless app_id && app_key
+
+      app_key = OpenSSL::PKey::RSA.new(Pathname(app_key).expand_path.read)
+
+      jwt = JWT.encode(
+        {
+          # issued at time, 60 seconds in the past to allow for clock drift
+          iat: Time.now.to_i - 60,
+          # JWT expiration time (10 minute maximum)
+          exp: Time.now.to_i + (5 * 60),
+          # GitHub App's identifier
+          iss: app_id,
+        },
+        app_key,
+        "RS256",
+      )
+
+      auth = "Bearer #{jwt}"
+
+      installation = open_rest("#{API_URL}/app/installations", auth: auth)&.first
+      return unless installation
+
+      installation_id = installation.fetch("id")
+
+      open_rest(
+        "#{API_URL}/app/installations/#{installation_id}/access_tokens",
+        auth:           auth,
+        request_method: "POST",
+      ).fetch("token")
+    end
+
+    def open_rest(
+      url,
+      data: nil, data_binary_path: nil, request_method: nil, scopes: [].freeze, parse_json: true, auth: nil
+    )
       # This is a no-op if the user is opting out of using the GitHub API.
       return block_given? ? yield({}) : {} if Homebrew::EnvConfig.no_github_api?
 
@@ -193,8 +234,9 @@ module GitHub
       args = ["--header", "Accept: application/vnd.github+json", "--write-out", "\n%{http_code}"]
       # rubocop:enable Style/FormatStringToken
 
-      token = credentials
-      args += ["--header", "Authorization: token #{token}"] unless credentials_type == :none
+      auth ||= "token #{credentials}" unless credentials_type == :none
+
+      args += ["--header", "Authorization: #{auth}"] if auth
       args += ["--header", "X-GitHub-Api-Version:2022-11-28"]
 
       data_tmpfile = nil
@@ -218,13 +260,13 @@ module GitHub
           data_tmpfile.write data
           data_tmpfile.close
           args += ["--data", "@#{data_tmpfile.path}"]
-
-          args += ["--request", request_method.to_s] if request_method
         end
+
+        args += ["--request", request_method.to_s] if request_method
 
         args += ["--dump-header", T.must(headers_tmpfile.path)]
 
-        output, errors, status = curl_output("--location", url.to_s, *args, secrets: [token])
+        output, errors, status = curl_output(*args, "--location", url.to_s)
         output, _, http_code = output.rpartition("\n")
         output, _, http_code = output.rpartition("\n") if http_code == "000"
         headers = headers_tmpfile.read

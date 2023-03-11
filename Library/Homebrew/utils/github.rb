@@ -144,11 +144,11 @@ module GitHub
     true
   end
 
-  def create_pull_request(repo, title, head, base, body)
+  def create_pull_request(repo, title, head, base, body, auth: nil)
     url = "#{API_URL}/repos/#{repo}/pulls"
     data = { title: title, head: head, base: base, body: body }
     scopes = CREATE_ISSUE_FORK_OR_PR_SCOPES
-    API.open_rest(url, data: data, scopes: scopes)
+    API.open_rest(url, data: data, scopes: scopes, auth: auth)
   end
 
   def private_repo?(full_name)
@@ -565,7 +565,7 @@ module GitHub
     [remote_url, username]
   end
 
-  def create_bump_pr(info, args:)
+  def create_bump_pr(info, args:, auth: nil)
     tap = info[:tap]
     sourcefile_path = info[:sourcefile_path]
     old_contents = info[:old_contents]
@@ -644,8 +644,11 @@ module GitHub
         end
 
         begin
-          url = create_pull_request(tap_remote_repo, commit_message,
-                                    "#{username}:#{branch}", remote_branch, pr_message)["html_url"]
+          url = create_pull_request(
+          tap_remote_repo, commit_message,
+                                    "#{username}:#{branch}", remote_branch, pr_message,
+                                    auth: auth
+                                    ).fetch("html_url")
           if args.no_browse?
             puts url
           else

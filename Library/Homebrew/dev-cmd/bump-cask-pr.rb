@@ -192,7 +192,13 @@ module Homebrew
       tap:             cask.tap,
       pr_message:      "Created with `brew bump-cask-pr`.",
     }
-    GitHub.create_bump_pr(pr_info, args: args)
+
+    app_token = GitHub::API.generate_app_token
+    auth = "token #{app_token}" if app_token
+
+    p auth
+
+    GitHub.create_bump_pr(pr_info, args: args, auth: auth)
   end
 
   def check_pull_requests(cask, state:, args:, version: nil)
