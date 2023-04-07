@@ -22,6 +22,12 @@ describe DownloadStrategyDetector do
       it { is_expected.to eq(GitHubGitDownloadStrategy) }
     end
 
+    context "when given a GitHub Release URL" do
+      let(:url) { "https://github.com/Homebrew/brew/releases/download/v1.0.0/Homebrew.zip" }
+
+      it { is_expected.to eq(GitHubReleaseDownloadStrategy) }
+    end
+
     it "defaults to curl" do
       expect(strategy_detector).to eq(CurlDownloadStrategy)
     end

@@ -378,6 +378,7 @@ class CurlDownloadStrategy < AbstractFileDownloadStrategy
     super
     @try_partial = true
     @mirrors = meta.fetch(:mirrors, [])
+    @resolved_info_cache = {}
   end
 
   # Download and cache the file at {#cached_location}.
@@ -456,8 +457,7 @@ class CurlDownloadStrategy < AbstractFileDownloadStrategy
   end
 
   def resolve_url_basename_time_file_size(url, timeout: nil)
-    @resolved_info_cache ||= {}
-    return @resolved_info_cache[url] if @resolved_info_cache.include?(url)
+    return @resolved_info_cache[url] if @resolved_info_cache.key?(url)
 
     if (domain = Homebrew::EnvConfig.artifact_domain)
       url = url.sub(%r{^https?://#{GitHubPackages::URL_DOMAIN}/}o, "#{domain.chomp("/")}/")
@@ -591,6 +591,73 @@ class HomebrewCurlDownloadStrategy < CurlDownloadStrategy
 
     options[:use_homebrew_curl] = true
     super(*args, **options)
+  end
+end
+
+class GitHubReleaseDownloadStrategy < CurlDownloadStrategy
+  extend Predicable
+
+  URL_REGEX = %r{^https://github.com/(?<owner>[^/]+)/(?<repo>[^/]+)/releases/download/(?<tag>[^/]+)/(?<filename>[^/?]+)}.freeze
+
+  attr_predicate :private?
+
+  attr_reader :owner, :repo, :tag, :filename
+
+  def initialize(url, name, version, **meta)
+    match = url.match(URL_REGEX)
+    raise ArgumentError, "URL is not a GitHub release URL" unless match
+
+    super
+
+    @owner = match[:owner]
+    @repo = match[:repo]
+    @tag = match[:tag]
+    @filename = match[:filename]
+
+    super(url, name, version, **meta)
+  end
+
+  private
+
+  def resolve_url_basename_time_file_size(url, timeout: nil)
+    return @resolved_info_cache[url] if @resolved_info_cache.key?(url)
+
+    private_repo = begin
+      GitHub.private_repo?("#{owner}/#{repo}")
+    rescue GitHub::API::HTTPNotFoundError
+      true
+    rescue GitHub::API::Error
+      false
+    end
+
+    return super unless private_repo
+
+    asset = resolve_asset
+
+    meta[:headers] ||= []
+    meta[:headers] += [
+      "Accept: application/octet-stream",
+      "Authorization: token #{Homebrew::EnvConfig.github_api_token}",
+    ]
+
+    @resolved_info_cache[url] = [
+      asset.fetch("url"),
+      asset.fetch("name"),
+      Time.parse(asset.fetch("updated_at")),
+      asset.fetch("size"),
+      false,
+    ]
+  end
+
+  sig { returns(T::Hash[String, T.untyped]) }
+  def resolve_asset
+    return @asset if defined?(@asset)
+
+    release_metadata = GitHub::API.open_rest("https://api.github.com/repos/#{owner}/#{repo}/releases/tags/#{tag}")
+    asset = release_metadata.fetch("assets").find { |a| a.fetch("name") == filename }
+    raise CurlDownloadStrategyError, "Asset file not found." unless asset
+
+    @asset = asset
   end
 end
 
@@ -1400,6 +1467,8 @@ class DownloadStrategyDetector
 
   def self.detect_from_url(url)
     case url
+    when GitHubReleaseDownloadStrategy::URL_REGEX
+      GitHubReleaseDownloadStrategy
     when GitHubPackages::URL_REGEX
       CurlGitHubPackagesDownloadStrategy
     when %r{^https?://github\.com/[^/]+/[^/]+\.git$}
@@ -1441,6 +1510,7 @@ class DownloadStrategyDetector
     when :bzr                    then BazaarDownloadStrategy
     when :svn                    then SubversionDownloadStrategy
     when :curl                   then CurlDownloadStrategy
+    when :github_release         then GitHubReleaseDownloadStrategy
     when :homebrew_curl          then HomebrewCurlDownloadStrategy
     when :cvs                    then CVSDownloadStrategy
     when :post                   then CurlPostDownloadStrategy
