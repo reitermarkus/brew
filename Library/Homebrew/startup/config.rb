@@ -6,8 +6,19 @@ raise "HOMEBREW_BREW_FILE was not exported! Please call bin/brew directly!" unle
 # Path to `bin/brew` main executable in `HOMEBREW_PREFIX`
 HOMEBREW_BREW_FILE = Pathname(ENV.fetch("HOMEBREW_BREW_FILE")).freeze
 
-# Where we link under
-HOMEBREW_PREFIX = Pathname(ENV.fetch("HOMEBREW_PREFIX")).freeze
+class ThreadLocalConst < Delegator
+  def initialize(name, value)
+    @name = name
+    @value = value
+  end
+
+  def __getobj__
+    Thread.current[@name] || @value
+  end
+end
+
+# Where we link under.
+HOMEBREW_PREFIX = ThreadLocalConst.new(:HOMEBREW_PREFIX, Pathname(ENV.fetch("HOMEBREW_PREFIX"))).freeze
 
 # Where `.git` is found
 HOMEBREW_REPOSITORY = Pathname(ENV.fetch("HOMEBREW_REPOSITORY")).freeze

@@ -7,10 +7,11 @@ module APIHashable
     return if generating_hash?
 
     # Apply monkeypatches for API generation
-    @old_homebrew_prefix = HOMEBREW_PREFIX
     @old_home = Dir.home
-    Object.send(:remove_const, :HOMEBREW_PREFIX)
-    Object.const_set(:HOMEBREW_PREFIX, Pathname.new(HOMEBREW_PREFIX_PLACEHOLDER))
+
+    @old_homebrew_prefix = Thread.current[:HOMEBREW_PREFIX]
+    Thread.current[:HOMEBREW_PREFIX] = Pathname.new(HOMEBREW_PREFIX_PLACEHOLDER)
+
     ENV["HOME"] = HOMEBREW_HOME_PLACEHOLDER
 
     @generating_hash = true
@@ -20,8 +21,8 @@ module APIHashable
     return unless generating_hash?
 
     # Revert monkeypatches for API generation
-    Object.send(:remove_const, :HOMEBREW_PREFIX)
-    Object.const_set(:HOMEBREW_PREFIX, @old_homebrew_prefix)
+    Thread.current[:HOMEBREW_PREFIX] = @old_homebrew_prefix
+
     ENV["HOME"] = @old_home
 
     @generating_hash = false
