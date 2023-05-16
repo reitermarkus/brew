@@ -15,15 +15,33 @@ module RuboCop
       def_node_matcher :val_node,    "{(pair _ $_) (hash (pair _ $_) ...)}"
 
       def_node_matcher :cask_block?, "(block (send nil? :cask ...) args ...)"
+      def_node_matcher :formula_block?, "(block (send nil? :formula ...) args ...)"
       def_node_matcher :on_system_block?,
                        "(block (send nil? {#{ON_SYSTEM_METHODS.map(&:inspect).join(" ")}} ...) args ...)"
       def_node_matcher :arch_variable?, "(lvasgn _ (send nil? :on_arch_conditional ...))"
 
       def_node_matcher :begin_block?, "(begin ...)"
 
+      def_node_matcher :formula_class, "(class (const nil? $_) (const nil? :Formula) ...)"
+
+      sig { returns(T::Boolean) }
+      def formula_class?
+        !formula_class.nil?
+      end
+
       sig { returns(T::Boolean) }
       def cask_on_system_block?
-        (on_system_block? && each_ancestor.any?(&:cask_block?)) || false
+        (on_system_block? && inside_cask_block?) || false
+      end
+
+      sig { returns(T::Boolean) }
+      def inside_formula_block?
+        each_ancestor.any? { |a| a.formula_class? || a.formula_block? }
+      end
+
+      sig { returns(T::Boolean) }
+      def inside_cask_block?
+        each_ancestor.any?(&:cask_block?)
       end
 
       def stanza?
