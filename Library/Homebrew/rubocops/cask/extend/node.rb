@@ -54,6 +54,14 @@ module RuboCop
         end
       end
 
+      STANZA_ORDER.each do |stanza_name|
+        class_eval <<-RUBY, __FILE__, __LINE__ + 1
+          def #{stanza_name}_stanza?                    # def url_stanza?
+            stanza? && method_name == :#{stanza_name}   #   stanza? && method_name == :url
+          end                                           # end
+        RUBY
+      end
+
       def heredoc?
         loc.is_a?(Parser::Source::Map::Heredoc)
       end
