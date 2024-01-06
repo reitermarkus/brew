@@ -114,7 +114,7 @@ module Homebrew
             end
 
             pub_date = Xml.element_text(item, "pubDate")&.then do |date_string|
-              Time.parse(date_string)
+              Time.rfc2822(date_string)
             rescue ArgumentError
               # Omit unparsable strings (e.g. non-English dates)
               nil
