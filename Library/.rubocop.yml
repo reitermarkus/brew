@@ -293,7 +293,8 @@ Style/BarePercentLiterals:
 
 Style/BlockDelimiters:
   BracesRequiredMethods:
-    - "sig"
+    - cache
+    - sig
 
 # Use consistent style for better readability.
 Style/CollectionMethods:
