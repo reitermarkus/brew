@@ -554,7 +554,7 @@ class Formula
   # All aliases for the formula.
   sig { returns(T::Array[String]) }
   def aliases
-    @aliases ||= tap&.alias_reverse_table&.dig(full_name)&.map { _1.split("/").last } || []
+    @aliases ||= tap&.reverse_aliases&.dig(name)&.map { _1.split("/").last } || []
   end
 
   # The {Resource}s for the currently active {SoftwareSpec}.
@@ -1989,13 +1989,13 @@ class Formula
   # an array of all core aliases
   # @private
   def self.core_aliases
-    CoreTap.instance.aliases
+    CoreTap.instance.alias_names
   end
 
   # an array of all tap aliases
   # @private
   def self.tap_aliases
-    @tap_aliases ||= Tap.reject(&:core_tap?).flat_map(&:aliases).sort
+    @tap_aliases ||= Tap.reject(&:core_tap?).flat_map(&:alias_names).sort
   end
 
   # an array of all aliases

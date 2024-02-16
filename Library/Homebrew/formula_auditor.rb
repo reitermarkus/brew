@@ -433,7 +433,7 @@ module Homebrew
 
         problem "Formula should not conflict with itself" if formula == conflicting_formula
 
-        if T.must(tap).formula_renames.key?(conflict.name) || T.must(tap).aliases.include?(conflict.name)
+        if T.must(tap).formula_renames.key?(conflict.name) || T.must(tap).aliases.key?(conflict.name)
           problem "Formula conflict should be declared using " \
                   "canonical name (#{conflicting_formula.name}) instead of #{conflict.name}"
         end
@@ -442,7 +442,7 @@ module Homebrew
         conflicting_formula.conflicts.each do |reverse_conflict|
           reverse_conflict_formula = Formulary.factory(reverse_conflict.name)
           if T.must(tap).formula_renames.key?(reverse_conflict.name) ||
-             T.must(tap).aliases.include?(reverse_conflict.name)
+             T.must(tap).aliases.key?(reverse_conflict.name)
             problem "Formula #{conflicting_formula.name} conflict should be declared using " \
                     "canonical name (#{reverse_conflict_formula.name}) instead of #{reverse_conflict.name}"
           end

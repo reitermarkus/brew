@@ -1106,13 +1106,8 @@ module Formulary
     tap = Tap.fetch(user, repo)
     type = nil
 
-    # FIXME: Remove the need to do this here.
-    alias_table_key = tap.core_tap? ? name : "#{tap}/#{name}"
-
-    if (possible_alias = tap.alias_table[alias_table_key].presence)
-      # FIXME: Remove the need to split the name and instead make
-      #        the alias table only contain short names.
-      name = possible_alias.split("/").last
+    if (alias_name = tap.aliases[name].presence)
+      name = alias_name
       type = :alias
     elsif (new_name = tap.formula_renames[name].presence)
       old_name = tap.core_tap? ? name : tapped_name

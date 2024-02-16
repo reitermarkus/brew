@@ -20,7 +20,7 @@ module Homebrew
         @tap_pypi_formula_mappings = tap.pypi_formula_mappings
         @problems                  = []
 
-        @formula_aliases = tap.aliases.map do |formula_alias|
+        @formula_aliases = tap.alias_names.map do |formula_alias|
           formula_alias.split("/").last
         end
         @formula_renames = tap.formula_renames

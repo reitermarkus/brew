@@ -127,6 +127,7 @@ class Tap
 
   # The remote path to this {Tap}.
   # e.g. `https://github.com/user/homebrew-repo`
+  sig { returns(T.nilable(String)) }
   def remote
     return default_remote unless installed?
 
@@ -135,6 +136,7 @@ class Tap
 
   # The remote repository name of this {Tap}.
   # e.g. `user/homebrew-repo`
+  sig { returns(T.nilable(String)) }
   def remote_repo
     return unless remote
 
@@ -195,16 +197,19 @@ class Tap
     "#{default_remote}/issues"
   end
 
+  sig { returns(String) }
   def to_s
     name
   end
 
   # True if this {Tap} is an official Homebrew tap.
+  sig { returns(T::Boolean) }
   def official?
     user == "Homebrew"
   end
 
   # True if the remote of this {Tap} is a private repository.
+  sig { returns(T::Boolean) }
   def private?
     cache(:private) { read_or_set_private_config }
   end
@@ -455,6 +460,7 @@ class Tap
   end
 
   # True if the {#remote} of {Tap} is customized.
+  sig { returns(T::Boolean) }
   def custom_remote?
     return true unless remote
 
@@ -659,28 +665,30 @@ class Tap
     cache(:alias_files) { Pathname.glob("#{alias_dir}/*").select(&:file?) }
   end
 
-  # an array of all aliases of this {Tap}.
+  # Mapping from alias to formula name.
+  #
   # @private
-  sig { returns(T::Array[String]) }
+  sig { returns(T::Hash[String, String]) }
   def aliases
-    cache(:aliases) { alias_files.map { |f| alias_file_to_name(f) } }
-  end
-
-  # a table mapping alias to formula name
-  # @private
-  def alias_table
-    cache(:alias_table) {
-      alias_files.each_with_object({}) do |alias_file, alias_table|
-        alias_table[alias_file_to_name(alias_file)] = formula_file_to_name(alias_file.resolved_path)
+    cache(:aliases) {
+      alias_files.each_with_object({}) do |alias_file, aliases|
+        aliases[alias_file.basename.to_s] = alias_file.resolved_path.basename(".rb").to_s
       end
     }
   end
 
-  # a table mapping formula name to aliases
   # @private
-  def alias_reverse_table
-    cache(:alias_reverse_table) {
-      alias_table.each_with_object({}) do |(alias_name, formula_name), alias_reverse_table|
+  sig { returns(T::Array[String]) }
+  def alias_names
+    cache(:alias_names) { aliases.keys.map { |alias_name| "#{name}/#{alias_name}" } }
+  end
+
+  # Mapping from formula name to aliases.
+  #
+  # @private
+  def reverse_aliases
+    cache(:reverse_aliases) {
+      aliases.each_with_object({}) do |(alias_name, formula_name), alias_reverse_table|
         alias_reverse_table[formula_name] ||= []
         alias_reverse_table[formula_name] << alias_name
       end
@@ -867,12 +875,6 @@ class Tap
     "#{name}/#{file.basename(".rb")}"
   end
 
-  # @private
-  sig { params(file: Pathname).returns(String) }
-  def alias_file_to_name(file)
-    "#{name}/#{file.basename}"
-  end
-
   def audit_exception(list, formula_or_cask, value = nil)
     return false if audit_exceptions.blank?
     return false unless audit_exceptions.key? list
@@ -892,6 +894,7 @@ class Tap
 
   private
 
+  sig { returns(T::Boolean) }
   def read_or_set_private_config
     case config["private"]
     when "true" then true
@@ -1122,17 +1125,17 @@ class CoreTap < AbstractCoreTap
   end
 
   # @private
-  sig { params(file: Pathname).returns(String) }
-  def alias_file_to_name(file)
-    file.basename.to_s
+  sig { returns(T::Hash[String, String]) }
+  def aliases
+    return super if Homebrew::EnvConfig.no_install_from_api?
+
+    Homebrew::API::Formula.all_aliases
   end
 
   # @private
   sig { returns(T::Array[String]) }
-  def aliases
-    return super if Homebrew::EnvConfig.no_install_from_api?
-
-    Homebrew::API::Formula.all_aliases.keys
+  def alias_names
+    cache(:alias_names) { aliases.keys }
   end
 
   # @private

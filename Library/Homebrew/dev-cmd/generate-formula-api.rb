@@ -60,7 +60,7 @@ module Homebrew
 
       homebrew_core_tap_hash = {
         "tap_git_head"   => tap.git_head,
-        "aliases"        => tap.alias_table,
+        "aliases"        => tap.aliases,
         "renames"        => tap.formula_renames,
         "tap_migrations" => tap.tap_migrations,
         "formulae"       => {},
@@ -87,7 +87,7 @@ module Homebrew
 
       homebrew_core_tap_json = JSON.generate(homebrew_core_tap_hash)
       File.write("api/internal/v3/homebrew-core.json", homebrew_core_tap_json) unless args.dry_run?
-      canonical_json = JSON.pretty_generate(tap.formula_renames.merge(tap.alias_table))
+      canonical_json = JSON.pretty_generate(tap.formula_renames.merge(tap.aliases))
       File.write("_data/formula_canonical.json", "#{canonical_json}\n") unless args.dry_run?
     end
   end

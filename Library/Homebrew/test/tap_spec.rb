@@ -166,9 +166,9 @@ describe Tap do
     expect(homebrew_foo_tap.formula_files).to eq([formula_file])
     expect(homebrew_foo_tap.formula_names).to eq(["homebrew/foo/foo"])
     expect(homebrew_foo_tap.alias_files).to eq([alias_file])
-    expect(homebrew_foo_tap.aliases).to eq(["homebrew/foo/bar"])
-    expect(homebrew_foo_tap.alias_table).to eq("homebrew/foo/bar" => "homebrew/foo/foo")
-    expect(homebrew_foo_tap.alias_reverse_table).to eq("homebrew/foo/foo" => ["homebrew/foo/bar"])
+    expect(homebrew_foo_tap.alias_names).to eq(["homebrew/foo/bar"])
+    expect(homebrew_foo_tap.aliases).to eq("bar" => "foo")
+    expect(homebrew_foo_tap.reverse_aliases).to eq("foo" => ["bar"])
     expect(homebrew_foo_tap.formula_renames).to eq("oldname" => "foo")
     expect(homebrew_foo_tap.tap_migrations).to eq("removed-formula" => "homebrew/foo")
     expect(homebrew_foo_tap.command_files).to eq([cmd_file])
@@ -565,9 +565,9 @@ describe Tap do
       expect(core_tap.formula_files).to eq([formula_file])
       expect(core_tap.formula_names).to eq(["foo"])
       expect(core_tap.alias_files).to eq([alias_file])
-      expect(core_tap.aliases).to eq(["bar"])
-      expect(core_tap.alias_table).to eq("bar" => "foo")
-      expect(core_tap.alias_reverse_table).to eq("foo" => ["bar"])
+      expect(core_tap.alias_names).to eq(["bar"])
+      expect(core_tap.aliases).to eq("bar" => "foo")
+      expect(core_tap.reverse_aliases).to eq("foo" => ["bar"])
 
       expect(core_tap.formula_renames).to eq formula_list_file_contents
       expect(core_tap.tap_migrations).to eq formula_list_file_contents
