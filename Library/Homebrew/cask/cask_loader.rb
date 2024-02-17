@@ -528,8 +528,16 @@ module Cask
       self.for(ref, warn: warn).load(config: config)
     end
 
-    def self.tap_cask_token_type(tapped_token, warn:)
-      user, repo, token = tapped_token.split("/", 3).map(&:downcase)
+    class MigrationLoopError < RuntimeError
+      def initialize(tapped_tokens)
+        super("Found tap migration loop: #{tapped_tokens.join(" → ")}")
+      end
+    end
+
+    def self.tap_cask_token_type(tapped_token, warn:, previous_tapped_tokens: [])
+      tapped_token = tapped_token.downcase
+
+      user, repo, token = tapped_token.split("/", 3)
       tap = Tap.fetch(user, repo)
       type = nil
 
@@ -545,13 +553,24 @@ module Cask
         new_tap.ensure_installed!
         new_tapped_token = "#{new_tap}/#{new_token}"
 
-        if tapped_token == new_tapped_token
-          opoo "Tap migration for #{tapped_token} points to itself, stopping recursion."
+        previous_tapped_tokens += [tapped_token]
+        if previous_tapped_tokens.include?(new_tapped_token)
+          e = MigrationLoopError.new(previous_tapped_tokens + [new_tapped_token])
+          raise e if previous_tapped_tokens.count != 1
+          opoo e if warn
         else
-          old_token = tap.core_cask_tap? ? token : tapped_token
-          token, tap, = tap_cask_token_type(new_tapped_token, warn: false)
-          new_token = new_tap.core_cask_tap? ? token : "#{tap}/#{token}"
-          type = :migration
+          begin
+            old_token = tap.core_cask_tap? ? token : tapped_token
+            token, tap, = tap_cask_token_type(
+              new_tapped_token,
+              warn:                   false,
+              previous_tapped_tokens: previous_tapped_tokens,
+            )
+            new_token = new_tap.core_cask_tap? ? token : "#{tap}/#{token}"
+            type = :migration
+          rescue MigrationLoopError => e
+            opoo e if warn
+          end
         end
       end
 

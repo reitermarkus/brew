@@ -72,55 +72,68 @@ describe Cask::CaskLoader, :cask do
         ENV["HOMEBREW_NO_INSTALL_FROM_API"] = "1"
       end
 
-      context "when a cask is migrated to the default tap" do
+      context "when a cask is migrated" do
         let(:token) { "local-caffeine" }
+        let(:default_tap) { CoreCaskTap.instance }
+
         let(:tap_migrations) do
           {
-            token => default_tap.name,
+            token => new_tap.name,
           }
         end
-        let(:old_tap) { CoreTap.instance }
-        let(:default_tap) { CoreCaskTap.instance }
 
         before do
           (old_tap.path/"tap_migrations.json").write tap_migrations.to_json
-          old_tap.clear_cache
-          default_tap.clear_cache
         end
 
-        it "does not warn when loading the short token" do
-          expect do
-            described_class.for(token)
-          end.not_to output.to_stderr
+        context "to the same tap", :focus do
+          let(:old_tap) { default_tap }
+          let(:new_tap) { old_tap }
+
+          it "warns about it" do
+            expect do
+              described_class.for("#{old_tap}/#{token}")
+            end.to output(%r{Warning: Found tap migration loop: #{old_tap}/#{token} → #{new_tap}/#{token}}).to_stderr
+          end
         end
 
-        it "does not warn when loading the full token in the default tap" do
-          expect do
-            described_class.for("#{default_tap}/#{token}")
-          end.not_to output.to_stderr
-        end
+        context "to the default tap" do
+          let(:old_tap) { CoreTap.instance }
+          let(:new_tap) { default_tap }
 
-        it "warns when loading the full token in the old tap" do
-          expect do
-            described_class.for("#{old_tap}/#{token}")
-          end.to output(%r{Cask #{old_tap}/#{token} was renamed to #{token}\.}).to_stderr
-        end
+          it "does not warn when loading the short token" do
+            expect do
+              described_class.for(token)
+            end.not_to output.to_stderr
+          end
 
-        # FIXME
-        # context "when there is an infinite tap migration loop" do
-        #   before do
-        #     (default_tap.path/"tap_migrations.json").write({
-        #       token => old_tap.name,
-        #     }.to_json)
-        #     default_tap.clear_cache
-        #   end
-        #
-        #   it "stops recursing" do
-        #     expect do
-        #       described_class.for("#{default_tap}/#{token}")
-        #     end.not_to output.to_stderr
-        #   end
-        # end
+          it "does not warn when loading the full token in the default tap" do
+            expect do
+              described_class.for("#{default_tap}/#{token}")
+            end.not_to output.to_stderr
+          end
+
+          it "warns when loading the full token in the old tap" do
+            expect do
+              described_class.for("#{old_tap}/#{token}")
+            end.to output(%r{Cask #{old_tap}/#{token} was renamed to #{token}\.}).to_stderr
+          end
+
+          context "when there is an infinite tap migration loop" do
+            before do
+              (default_tap.path/"tap_migrations.json").write({
+                token => old_tap.name,
+              }.to_json)
+              default_tap.clear_cache
+            end
+
+            it "warns about it" do
+              expect do
+                described_class.for("#{old_tap}/#{token}")
+              end.to output(%r{Warning: Found tap migration loop: #{old_tap}/#{token} → #{new_tap}/#{token} → #{old_tap}/#{token}}).to_stderr
+            end
+          end
+        end
       end
     end
   end

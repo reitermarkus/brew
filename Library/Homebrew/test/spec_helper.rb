@@ -192,6 +192,7 @@ RSpec.configure do |config|
 
     Formulary.clear_cache
     Tap.clear_cache
+    Tap.each(&:clear_cache)
     DependencyCollector.clear_cache
     Formula.clear_cache
     Keg.clear_cache
