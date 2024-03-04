@@ -270,11 +270,26 @@ class Tap
     user == "Homebrew"
   end
 
-  # True if the remote of this {Tap} is a private repository.
+  # Check whether the remote of this {Tap} is a private repository.
+  sig { returns(T::Boolean) }
   def private?
-    return @private if instance_variable_defined?(:@private)
+    return @private if defined?(@private)
 
-    @private = read_or_set_private_config
+    @private = if (value = config[:private]).nil?
+      config[:private] = begin
+        if custom_remote?
+          true
+        else
+          GitHub.private_repo?(full_name)
+        end
+      rescue GitHub::API::HTTPNotFoundError
+        true
+      rescue GitHub::API::Error
+        false
+      end
+    else
+      value
+    end
   end
 
   # {TapConfig} of this {Tap}.
@@ -288,6 +303,7 @@ class Tap
   end
 
   # True if this {Tap} has been installed.
+  sig { returns(T::Boolean) }
   def installed?
     path.directory?
   end
@@ -347,12 +363,12 @@ class Tap
         fix_remote_configuration(requested_remote: requested_remote, quiet: quiet)
       end
 
-      unless force_auto_update.nil?
-        if force_auto_update
-          config["forceautoupdate"] = force_auto_update
-        elsif config["forceautoupdate"] == "true"
-          config.delete("forceautoupdate")
-        end
+      case force_auto_update
+      when true
+        config[:forceautoupdate] = true
+        return
+      when false
+        config.delete(:forceautoupdate)
         return
       end
 
@@ -399,7 +415,7 @@ class Tap
       raise
     end
 
-    config["forceautoupdate"] = force_auto_update unless force_auto_update.nil?
+    config[:forceautoupdate] = force_auto_update unless force_auto_update.nil?
 
     Commands.rebuild_commands_completion_list
     link_completions_and_manpages
@@ -961,25 +977,6 @@ class Tap
 
   private
 
-  def read_or_set_private_config
-    case config["private"]
-    when "true" then true
-    when "false" then false
-    else
-      config["private"] = begin
-        if custom_remote?
-          true
-        else
-          GitHub.private_repo?(full_name)
-        end
-      rescue GitHub::API::HTTPNotFoundError
-        true
-      rescue GitHub::API::Error
-        false
-      end
-    end
-  end
-
   sig { params(file: Pathname).returns(T.any(T::Array[String], Hash)) }
   def read_formula_list(file)
     JSON.parse file.read
@@ -1346,15 +1343,18 @@ class TapConfig
     @tap = tap
   end
 
-  sig { params(key: T.any(Symbol, String)).returns(T.nilable(String)) }
+  sig { params(key: Symbol).returns(T.nilable(T::Boolean)) }
   def [](key)
     return unless tap.git?
     return unless Utils::Git.available?
 
-    Homebrew::Settings.read key, repo: tap.path
+    case Homebrew::Settings.read(key, repo: tap.path)
+    when "true" then true
+    when "false" then false
+    end
   end
 
-  sig { params(key: T.any(Symbol, String), value: T.any(T::Boolean, String)).void }
+  sig { params(key: Symbol, value: T::Boolean).void }
   def []=(key, value)
     return unless tap.git?
     return unless Utils::Git.available?
@@ -1362,7 +1362,7 @@ class TapConfig
     Homebrew::Settings.write key, value.to_s, repo: tap.path
   end
 
-  sig { params(key: T.any(Symbol, String)).void }
+  sig { params(key: Symbol).void }
   def delete(key)
     return unless tap.git?
     return unless Utils::Git.available?
