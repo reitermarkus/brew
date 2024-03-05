@@ -40,16 +40,18 @@ module GitHub
     search_results_count("issues", query, **qualifiers)
   end
 
+  sig { params(files: T::Array[String], description: String, private: T::Boolean).returns(T.nilable(String)) }
   def self.create_gist(files, description, private:)
     url = "#{API_URL}/gists"
     data = { "public" => !private, "files" => files, "description" => description }
-    API.open_rest(url, data: data, scopes: CREATE_GIST_SCOPES)["html_url"]
+    API.open_rest(url, data: data, scopes: CREATE_GIST_SCOPES)&.fetch("html_url")
   end
 
+  sig { params(repo: String, title: String, body: String).returns(T.nilable(String)) }
   def self.create_issue(repo, title, body)
     url = "#{API_URL}/repos/#{repo}/issues"
     data = { "title" => title, "body" => body }
-    API.open_rest(url, data: data, scopes: CREATE_ISSUE_FORK_OR_PR_SCOPES)["html_url"]
+    API.open_rest(url, data: data, scopes: CREATE_ISSUE_FORK_OR_PR_SCOPES)&.fetch("html_url")
   end
 
   def self.repository(user, repo)
@@ -125,13 +127,14 @@ module GitHub
     API.open_rest(url, data: data, scopes: scopes)
   end
 
-  def self.fork_exists?(repo, org: nil)
+  sig { params(repo: String, org: String).returns(T::Boolean) }
+  def self.fork_exists?(repo, org: T.unsafe(nil))
     _, reponame = repo.split("/")
 
-    username = org || API.open_rest(url_to("user")) { |json| json["login"] }
+    username = org || API.open_rest(url_to("user")) { |json| json&.fetch("login") }
     json = API.open_rest(url_to("repos", username, reponame))
 
-    return false if json["message"] == "Not Found"
+    return false if json&.fetch("message") == "Not Found"
 
     true
   end
@@ -143,9 +146,11 @@ module GitHub
     API.open_rest(url, data: data, scopes: scopes)
   end
 
+  sig { params(full_name: String).returns(T.nilable(T::Boolean)) }
   def self.private_repo?(full_name)
     uri = url_to "repos", full_name
-    API.open_rest(uri) { |json| json["private"] }
+    repo = API.open_rest(uri)
+    repo["private"]
   end
 
   def self.search_query_string(*main_params, **qualifiers)

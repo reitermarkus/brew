@@ -213,11 +213,29 @@ module GitHub
       EOS
     end
 
+    sig {
+      type_parameters(:U)
+        .params(
+          url:              T.any(String, URI),
+          data:             T::Hash[T.any(Symbol, String), T.untyped],
+          data_binary_path: T.any(String, Pathname),
+          request_method:   Symbol,
+          scopes:           T::Array[T.any(Symbol, String)],
+          block:            T.nilable(
+            T.proc.params(arg0: T.nilable(T::Hash[String, T.untyped])).returns(T.type_parameter(:U)),
+          ),
+        ).returns(T.nilable(T.any(T::Hash[String, T.untyped], T.type_parameter(:U))))
+    }
     def self.open_rest(
-      url, data: nil, data_binary_path: nil, request_method: nil, scopes: [].freeze, parse_json: true
+      url,
+      data: T.unsafe(nil),
+      data_binary_path: T.unsafe(nil),
+      request_method: T.unsafe(nil),
+      scopes: [].freeze,
+      &block
     )
       # This is a no-op if the user is opting out of using the GitHub API.
-      return block_given? ? yield({}) : {} if Homebrew::EnvConfig.no_github_api?
+      return block ? yield(nil) : nil if Homebrew::EnvConfig.no_github_api?
 
       # This is a Curl format token, not a Ruby one.
       # rubocop:disable Style/FormatStringToken
@@ -273,8 +291,8 @@ module GitHub
 
         return if http_code == "204" # No Content
 
-        output = JSON.parse output if parse_json
-        if block_given?
+        output = JSON.parse(output)
+        if block
           yield output
         else
           output
@@ -305,7 +323,7 @@ module GitHub
 
     def self.open_graphql(query, variables: nil, scopes: [].freeze, raise_errors: true)
       data = { query: query, variables: variables }
-      result = open_rest("#{API_URL}/graphql", scopes: scopes, data: data, request_method: "POST")
+      result = open_rest("#{API_URL}/graphql", scopes: scopes, data: data, request_method: :POST)
 
       if raise_errors
         if result["errors"].present?

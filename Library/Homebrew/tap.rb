@@ -280,7 +280,7 @@ class Tap
         if custom_remote?
           true
         else
-          GitHub.private_repo?(full_name)
+          GitHub.private_repo?(full_name) || false
         end
       rescue GitHub::API::HTTPNotFoundError
         true
