@@ -878,9 +878,14 @@ class Tap
     installed? && !private?
   end
 
-  sig { params(other: T.nilable(T.any(String, Tap))).returns(T::Boolean) }
+  sig { params(other: T.untyped).returns(T::Boolean) }
   def ==(other)
-    other = Tap.fetch(other) if other.is_a?(String)
+    # FIXME: Remove this instead of changing to `odisabled`, i.e. simply return `false` when comparing to a `String`.
+    if other.is_a?(String)
+      odeprecated "`Tap#==` with a `String`", "a comparison with `Tap#name`"
+      other = Tap.fetch(other)
+    end
+
     other.is_a?(self.class) && name == other.name
   end
 

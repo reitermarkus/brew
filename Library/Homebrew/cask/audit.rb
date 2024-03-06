@@ -199,7 +199,7 @@ module Cask
     def audit_description
       # Fonts seldom benefit from descriptions and requiring them disproportionately
       # increases the maintenance burden.
-      return if cask.tap == "homebrew/cask-fonts"
+      return if cask.tap&.name == "homebrew/cask-fonts"
 
       add_error("Cask should have a description. Please add a `desc` stanza.", strict_only: true) if cask.desc.blank?
     end
@@ -429,7 +429,7 @@ module Cask
       add_error "cask token contains .app" if token.end_with? ".app"
 
       match_data = /-(?<designation>alpha|beta|rc|release-candidate)$/.match(cask.token)
-      if match_data && cask.tap&.official? && cask.tap != "homebrew/cask-versions"
+      if match_data && cask.tap&.official? && cask.tap&.name != "homebrew/cask-versions"
         add_error "cask token contains version designation '#{match_data[:designation]}'"
       end
 
@@ -655,7 +655,7 @@ module Cask
 
     sig { void }
     def audit_github_prerelease_version
-      return if cask.tap == "homebrew/cask-versions"
+      return if cask.tap&.name == "homebrew/cask-versions"
 
       odebug "Auditing GitHub prerelease"
       user, repo = get_repo_data(%r{https?://github\.com/([^/]+)/([^/]+)/?.*}) if online?
@@ -669,7 +669,7 @@ module Cask
 
     sig { void }
     def audit_gitlab_prerelease_version
-      return if cask.tap == "homebrew/cask-versions"
+      return if cask.tap&.name == "homebrew/cask-versions"
 
       user, repo = get_repo_data(%r{https?://gitlab\.com/([^/]+)/([^/]+)/?.*}) if online?
       return if user.nil?
